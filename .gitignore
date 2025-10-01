@@ -1,0 +1,68 @@
+.env
+.vscode
+__pycache__
+chrome_profile
+# Entorno/IDE
+.venv/
+venv/
+ENV/
+env/
+.vscode/
+.idea/
+*.code-workspace
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+*.dylib
+build/
+dist/
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Config y secretos
+.env
+.env.*.local
+*.env
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Selenium / perfiles locales
+chrome_profile/
+app/core/external/bot_selenium_files_solman/
+
+# Datos generados y grandes
+data_store/
+# Si prefieres granular, usa estas en lugar de la línea anterior:
+# data_store/etl_store/uploads_excel/
+# data_store/etl_store/uploads_business/
+# data_store/etl_store/uploads_multimodal/
+# data_store/etl_store/vector_store/
+# data_store/etl_store/duckdb_data/
+# data_store/logs/
+# data_store/logs_vectorization/
+# data_store/logs_vectorization/tmp_images/
+# data_store/etl_store/knowledge_base/
+
+# Chroma / embeddings
+**/chroma.sqlite3
+**/*.bin
+
+# DuckDB
+**/*.duckdb
+
+# Logs generales
+*.log
+logs/
+data_store/logs/
+data_store/logs_vectorization/

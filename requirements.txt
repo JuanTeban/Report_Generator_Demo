@@ -1,0 +1,36 @@
+# --- Web Framework & Server ---
+fastapi
+uvicorn[standard]
+python-multipart
+jinja2
+
+# --- Core AI & Orchestration (LangChain) ---
+langchain
+langchain-community
+langchain-core
+langchain-ollama
+
+# --- Vector Database ---
+chromadb
+
+# --- Local LLM (Ollama) ---
+ollama
+
+# --- Data Processing & ETL ---
+pandas
+duckdb
+polars
+openpyxl
+unstructured
+python-docx
+beautifulsoup4
+lxml
+markdownify
+ftfy
+Pillow
+fastexcel
+polars[excel]
+
+# --- Configuration & Utilities ---
+pydantic
+python-dotenv
