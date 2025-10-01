@@ -1,0 +1,108 @@
+{
+  "consultant": "YARLEN ASTRID ALVAREZ BUILES (203)",
+  "generated_at": "2025-09-30T23:54:12.314349",
+  "type": "preview",
+  "data": {
+    "sql_rows": 3,
+    "evidence_count": 0
+  },
+  "sections": {
+    "summary": "**1) Resumen Ejecutivo General:**\n\nSe han identificado un total de 3 defectos, con estados variados que incluyen \"Propuesta de solución\", \"En tratamiento\" y \"Transferido\". La antigüedad promedio de estos defectos es de 23,8 días, con el defecto más antiguo llevando aproximadamente 37 días desde su creación. Los módulos afectados son TX y RE, lo que sugiere una distribución de defectos en diferentes áreas de la plataforma. Es crucial abordar estos defectos de manera oportuna para minimizar su impacto en la operación y la satisfacción del cliente.\n\n**2) Detalle de Hallazgos:**\n\n**ID 29:**\n  - **Estado:** Propuesta de solución\n  - **Contexto de Proyecto:** Este defecto se encuentra en el módulo TX, específicamente en la funcionalidad de \"Carga Manual F5247\". Fue creado el 24/08/2025 y ha tenido varias actualizaciones, siendo la última el 25/09/2025. El consultor funcional ha estado revisando el defecto, y se espera que Ana termine las pruebas y envíe la propuesta de solución esta semana.\n\n**ID 38:**\n  - **Estado:** En tratamiento\n  - **Contexto de Proyecto:** Este defecto está asociado con el módulo RE, en la sección de \"CONTRATOS_ERROR IND DE RETENCIÓN\". Fue reportado el 09/02/2025 y su última modificación fue el 09/10/2025. El equipo de EPM está trabajando en su resolución, según los comentarios del 12/09/2025.\n\n**ID 62:**\n  - **Estado:** Transferido\n  - **Contexto de Proyecto:** Este defecto se relaciona con el módulo TX, específicamente con \"ERROR INDICADOR IVA\". Fue creado el 24/09/2025 y transferido el 30/09/2025. Aún se encuentra pendiente de revisión, según lo indicado el 26/09/2025.",
+    "recommendations": "### Hallazgo ID: H0_TX_Carga Manual F5247 (8000001916)\n\n**1. Diagnóstico Técnico:**\nEl sistema presenta un defecto relacionado con la carga manual F5247, específicamente en el módulo TX. El defecto ha estado abierto por un promedio de 37,12 días, lo que sugiere una falta de atención o resolución oportuna. La categoría de defecto está clasificada como \"Desarrollo\", lo que implica que el problema podría estar relacionado con la implementación o funcionamiento de la carga manual en el sistema.\n\n**2. Hipótesis de Causa Raíz y Plan de Acción:**\nLa hipótesis es que el defecto se debe a una falta de comprensión o implementación incorrecta de la funcionalidad de carga manual en el módulo TX, lo que ha llevado a errores y retrasos en la resolución. Dado que no hay soluciones históricas relevantes, el plan de acción se basará en un enfoque de análisis y resolución sistemática.\n\n**Plan de Acción:**\n1.  **Verificación Inicial:** Revisar los registros y comentarios del defecto para entender mejor el contexto y los pasos que se han seguido hasta ahora para intentar resolver el problema.\n2.  **Implementación de la Solución:** Asignar un equipo de desarrollo para revisar y corregir la implementación de la carga manual en el módulo TX, asegurándose de que se ajuste a los requisitos y funcionalidades esperadas.\n3.  **Monitoreo de Resultados:** Una vez implementada la solución, realizar pruebas exhaustivas para asegurarse de que el defecto ha sido resuelto y que la carga manual funciona correctamente en el módulo TX. Además, monitorear el desempeño del sistema y recopilar retroalimentación de los usuarios para identificar cualquier problema adicional o área de mejora.\n\n---\n\n### Hallazgo ID: D1_RE_ CONTRATOS_ ERROR IND DE RETENCIÓN (8000002015)\n\n**1. Diagnóstico Técnico:**\nEl sistema presenta un defecto relacionado con el módulo RE, específicamente con el error de indicador de retención en contratos. El defecto ha estado en tratamiento, lo que sugiere que se han iniciado esfuerzos para resolverlo, pero aún no se ha logrado una solución efectiva. La falta de una categoría de defecto claramente definida podría estar contribuyendo a la confusión o retraso en la resolución.\n\n**2. Hipótesis de Causa Raíz y Plan de Acción:**\nLa hipótesis es que el defecto se debe a una configuración incorrecta o a un error en la lógica de negocio relacionada con el indicador de retención en contratos dentro del módulo RE. La falta de una solución histórica relevante sugiere que se necesita un análisis detallado del problema.\n\n**Plan de Acción:**\n1.  **Verificación Inicial:** Realizar una revisión exhaustiva de la configuración y la lógica de negocio del módulo RE para identificar posibles causas del error de indicador de retención.\n2.  **Implementación de la Solución:** Desarrollar y probar una solución que corrija el error, lo que podría involucrar ajustes en la configuración, actualizaciones en la lógica de negocio o la implementación de nuevos controles de validación.\n3.  **Monitoreo de Resultados:** Después de implementar la solución, realizar un seguimiento para asegurarse de que el error de indicador de retención ha sido completamente resuelto y que el módulo RE funciona según los requisitos esperados.\n\n---\n\n### Hallazgo ID: H0_TX_ERROR INDICADOR IVA (8000002237)\n\n**1. Diagnóstico Técnico:**\nEl sistema presenta un defecto relacionado con el módulo TX, específicamente un error en el indicador de IVA. Dado que el defecto es reciente, con solo 6,11 días de antigüedad en promedio, es crucial abordarlo de manera oportuna para evitar retrasos adicionales. La falta de una categoría de defecto claramente definida podría complicar el análisis.\n\n**2. Hipótesis de Causa Raíz y Plan de Acción:**\nLa hipótesis es que el defecto se debe a un error de configuración o a un problema en la lógica de cálculo del indicador de IVA dentro del módulo TX. Dada la naturaleza reciente del defecto, es posible que se necesite una revisión rápida y precisa para identificar y corregir el problema.\n\n**Plan de Acción:**\n1.  **Verificación Inicial:** Realizar una revisión inmediata de la configuración y la lógica de cálculo del indicador de IVA en el módulo TX para identificar la causa raíz del error.\n2.  **Implementación de la Solución:** Implementar una solución que corrija el error de cálculo, lo que podría involucrar ajustes en la configuración, actualizaciones en la fórmula de cálculo o la implementación de nuevos controles de validación.\n3.  **Monitoreo de Resultados:** Después de implementar la solución, monitorear el funcionamiento del módulo TX para asegurarse de que el error del indicador de IVA ha sido resuelto y que los cálculos se realizan de manera precisa y confiable."
+  },
+  "charts": {
+    "estado_distribution": {
+      "data": [
+        {
+          "type": "pie",
+          "labels": [
+            "Propuesta de solución",
+            "En tratamiento",
+            "Transferido"
+          ],
+          "values": [
+            1,
+            1,
+            1
+          ],
+          "hole": 0.4
+        }
+      ],
+      "layout": {
+        "title": "Distribución por estado_de_defecto",
+        "margin": {
+          "t": 40,
+          "b": 40,
+          "l": 40,
+          "r": 40
+        }
+      }
+    },
+    "module_distribution": {
+      "data": [
+        {
+          "type": "bar",
+          "x": [
+            "TX",
+            "RE"
+          ],
+          "y": [
+            2,
+            1
+          ]
+        }
+      ],
+      "layout": {
+        "title": "Cantidad por modulo",
+        "xaxis": {
+          "title": "modulo"
+        },
+        "yaxis": {
+          "title": "Cantidad"
+        },
+        "margin": {
+          "t": 40,
+          "b": 80,
+          "l": 60,
+          "r": 40
+        }
+      }
+    },
+    "age_by_defect": {
+      "data": [
+        {
+          "type": "bar",
+          "x": [
+            "37,12",
+            "28,17",
+            "6,11"
+          ],
+          "y": [
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "layout": {
+        "title": "Cantidad por antiguedad_del_defecto_promedio_en_dias",
+        "xaxis": {
+          "title": "antiguedad_del_defecto_promedio_en_dias"
+        },
+        "yaxis": {
+          "title": "Cantidad"
+        },
+        "margin": {
+          "t": 40,
+          "b": 80,
+          "l": 60,
+          "r": 40
+        }
+      }
+    }
+  },
+  "metadata": {
+    "sql_template": null,
+    "version": "2.0"
+  }
+}

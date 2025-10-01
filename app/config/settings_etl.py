@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -9,6 +8,7 @@ print(PROJECT_ROOT)
 DATA_STORE_PATH = PROJECT_ROOT / "data_store/etl_store"
 DATA_LOG_PATH = PROJECT_ROOT / "data_store/logs_vectorization"
 DATA_KNOWLEDGE_SCHEMA_PATH = PROJECT_ROOT / "data_store/knowledge_base"
+DATA_LOGS_PATH = PROJECT_ROOT / "data_store/logs"
 print(DATA_STORE_PATH)
 #--------------------------------------------------
 # Directorios de uploads (todos al mismo nivel)
@@ -29,7 +29,7 @@ print(Path(str(CHROMA_COLLECTION_NAME)).name)
 VECTORIZATION_LOG_FILE = DATA_LOG_PATH / "vectorization_log.json"
 #--------------------------------------------------
 CHROMA_COLLECTIONS = {
-    "schema_knowledge": "schema_knowledge",      
+    "schema_knowledge": "sql_knowledge_base",      
     "business_rules": "business_rules",          
     "external_docs": "external_docs",
     "multimodal_evidence": "multimodal_evidence",
