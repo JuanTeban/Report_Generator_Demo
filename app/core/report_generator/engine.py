@@ -1,7 +1,6 @@
 # app/core/report_generator/engine.py
 """
 Motor principal de generación de reportes.
-Versión limpia y modular del engine_preview.py original.
 """
 
 import logging
@@ -97,7 +96,12 @@ class ReportEngine:
                     "type": report_type,
                     "data": {
                         "sql_rows": len(sql_data),
-                        "evidence_count": len(rag_context.get("evidence", []))
+                        "evidence_count": sum(
+                            len(sections.get("control", [])) + 
+                            len(sections.get("evidencia", [])) + 
+                            len(sections.get("solucion", []))
+                            for sections in rag_context.get("evidence_by_defect", {}).values()
+                        )
                     },
                     "sections": sections,
                     "charts": charts,
@@ -181,7 +185,7 @@ class ReportEngine:
         """Recupera contexto relevante desde las bases vectoriales."""
         
         context = {
-            "evidence": [],
+            "evidence_by_defect": {},  # Organizado por defecto
             "business_rules": [],
             "schemas": []
         }
@@ -190,23 +194,38 @@ class ReportEngine:
         defect_ids = self._extract_defect_ids(sql_data)
         self.flow_logger.log_data("defect_ids", defect_ids, f"IDs de defectos extraídos: {len(defect_ids)}")
         
-        # 2. Recuperar evidencia multimodal
-        self.flow_logger.log_info("Recuperando evidencia multimodal")
-        for defect_id in defect_ids[:5]:  # Limitar para no sobrecargar
-            self.flow_logger.log_rag_query(
-                query=f"evidencia para defecto {defect_id}",
-                collection="multimodal_evidence",
-                filters={"responsable": consultant_name, "defect_id_digits": defect_id}
+        if not defect_ids:
+            self.flow_logger.log_warning("No se encontraron IDs de defectos en los datos SQL")
+            return context
+        
+        # 2. Recuperar evidencia estructurada por defecto
+        self.flow_logger.log_info(f"Recuperando evidencia estructurada para {len(defect_ids)} defectos")
+        
+        evidence_structured = await self.retriever.get_defect_evidence_structured(
+            defect_ids=defect_ids,
+            responsable=consultant_name,
+            chunks_per_defect=20  # Límite por defecto y sección
+        )
+        
+        context["evidence_by_defect"] = evidence_structured
+        
+        # Calcular totales para logging
+        total_chunks = 0
+        for defect_id, sections in evidence_structured.items():
+            defect_total = sum(len(chunks) for chunks in sections.values())
+            total_chunks += defect_total
+            self.flow_logger.log_data(
+                f"defect_{defect_id}_evidence",
+                {
+                    "control_chunks": len(sections.get("control", [])),
+                    "evidencia_chunks": len(sections.get("evidencia", [])),
+                    "solucion_chunks": len(sections.get("solucion", [])),
+                    "total": defect_total
+                },
+                f"Chunks recuperados para defecto {defect_id}"
             )
-            
-            evidence = await self.retriever.get_multimodal_evidence(
-                responsable=consultant_name,
-                defecto_id=defect_id,
-                limit=10
-            )
-            
-            self.flow_logger.log_rag_results(evidence, "multimodal_evidence")
-            context["evidence"].extend(evidence)
+        
+        self.flow_logger.log_info(f"Total de chunks recuperados: {total_chunks}")
         
         # 3. Recuperar reglas de negocio
         query = self._build_context_query(sql_data)
@@ -219,15 +238,6 @@ class ReportEngine:
         rules = await self.retriever.get_business_rules(query, top_k=5)
         self.flow_logger.log_rag_results(rules, "business_rules")
         context["business_rules"] = rules
-        
-        # 4. Log del contexto final
-        total_evidence = len(context["evidence"])
-        total_rules = len(context["business_rules"])
-        self.flow_logger.log_data("rag_context_summary", {
-            "total_evidence": total_evidence,
-            "total_business_rules": total_rules,
-            "defect_ids_processed": len(defect_ids[:5])
-        }, "Resumen del contexto RAG recuperado")
         
         return context
     
@@ -369,7 +379,7 @@ class ReportEngine:
         
         ids = set()
         for row in sql_data:
-            defect = str(row.get("defecto", ""))
+            defect = str(row.get("defectos", ""))
             match = re.search(r'\b(\d{6,})\b', defect)
             if match:
                 ids.add(match.group(1))

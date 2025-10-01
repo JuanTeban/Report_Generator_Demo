@@ -41,7 +41,6 @@ class RAGRetriever:
             return []
         
         try:
-            # Generar embedding para la query
             query_embedding = await self.embedder.embed_content(
                 [query], 
                 task_type="RETRIEVAL_QUERY"
@@ -56,7 +55,6 @@ class RAGRetriever:
                 include=["documents", "metadatas", "distances"]
             )
             
-            # Estructurar respuesta
             docs = []
             for i in range(len(results["documents"][0])):
                 docs.append({
@@ -71,6 +69,120 @@ class RAGRetriever:
             logger.error(f"Error en recuperación de esquemas: {e}")
             return []
     
+    async def get_defect_chunks_by_section(
+        self,
+        defect_id: str,
+        section_title_norm: str,
+        responsable: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Recupera chunks de un defecto específico filtrados por sección.
+        
+        Args:
+            defect_id: ID del defecto (ej: "8000002015")
+            section_title_norm: Sección normalizada (ej: "control_de_la_plantilla_y_documento")
+            responsable: Nombre del responsable (opcional, filtro adicional)
+            limit: Máximo de chunks a recuperar
+        
+        Returns:
+            Lista de chunks con su contenido y metadata
+        """
+        collection = self.collections.get("multimodal_evidence")
+        if not collection:
+            logger.warning("Colección multimodal_evidence no disponible")
+            return []
+        
+        # Construir filtro WHERE
+        where_clauses = [
+            {"defect_id_digits": {"$eq": defect_id}},
+            {"section_title_norm": {"$eq": section_title_norm}}
+        ]
+        
+        if responsable:
+            responsable_norm = self._normalize_text(responsable)
+            where_clauses.append({
+                "responsable_norm": {"$eq": responsable_norm}
+            })
+        
+        where = {"$and": where_clauses} if len(where_clauses) > 1 else where_clauses[0]
+        
+        try:
+            results = collection.get(
+                where=where,
+                limit=limit,
+                include=["documents", "metadatas"]
+            )
+            
+            docs = []
+            for i in range(len(results["documents"])):
+                docs.append({
+                    "content": results["documents"][i],
+                    "metadata": results["metadatas"][i]
+                })
+            
+            logger.info(f"Recuperados {len(docs)} chunks para defecto {defect_id}, sección {section_title_norm}")
+            return docs
+            
+        except Exception as e:
+            logger.error(f"Error recuperando chunks: {e}")
+            return []
+    
+    async def get_defect_evidence_structured(
+        self,
+        defect_ids: List[str],
+        responsable: Optional[str] = None,
+        chunks_per_defect: int = 50
+    ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+        """
+        Recupera evidencia estructurada por defecto y por sección.
+        
+        Args:
+            defect_ids: Lista de IDs de defectos
+            responsable: Nombre del responsable (filtro opcional)
+            chunks_per_defect: Límite de chunks por defecto y sección
+        
+        Returns:
+            Diccionario estructurado:
+            {
+                "defect_id": {
+                    "control": [chunks de control],
+                    "evidencia": [chunks de evidencia],
+                    "solucion": [chunks de solución]
+                }
+            }
+        """
+        structured_evidence = {}
+        
+        # Secciones relevantes para cada propósito
+        sections_map = {
+            "control": "control_de_la_plantilla_y_documento",
+            "evidencia": "descripcion_y_evidencia_hallazgo",
+            "solucion": "respuesta_consultoria"  # Si existe
+        }
+        
+        for defect_id in defect_ids:
+            structured_evidence[defect_id] = {}
+            
+            for key, section_norm in sections_map.items():
+                chunks = await self.get_defect_chunks_by_section(
+                    defect_id=defect_id,
+                    section_title_norm=section_norm,
+                    responsable=responsable,
+                    limit=chunks_per_defect
+                )
+                structured_evidence[defect_id][key] = chunks
+            
+            # Log resumen
+            total = sum(len(chunks) for chunks in structured_evidence[defect_id].values())
+            logger.info(
+                f"Defecto {defect_id}: {len(structured_evidence[defect_id]['control'])} control, "
+                f"{len(structured_evidence[defect_id]['evidencia'])} evidencia, "
+                f"{len(structured_evidence[defect_id]['solucion'])} solución"
+            )
+        
+        return structured_evidence
+    
     async def get_multimodal_evidence(
         self,
         responsable: Optional[str] = None,
@@ -80,16 +192,15 @@ class RAGRetriever:
     ) -> List[Dict[str, Any]]:
         """
         Recupera evidencia multimodal con filtros de metadata.
+        DEPRECATED: Usar get_defect_evidence_structured para casos de uso estructurados.
         """
         collection = self.collections.get("multimodal_evidence")
         if not collection:
             return []
         
-        # Construir filtro WHERE para ChromaDB
         where_clauses = []
         
         if responsable:
-            # Normalizar responsable
             responsable_norm = self._normalize_text(responsable)
             where_clauses.append({
                 "responsable_norm": {"$eq": responsable_norm}
@@ -105,7 +216,6 @@ class RAGRetriever:
                 "element_type": {"$eq": modality}
             })
         
-        # Combinar cláusulas
         where = None
         if where_clauses:
             if len(where_clauses) == 1:
@@ -120,7 +230,6 @@ class RAGRetriever:
                 include=["documents", "metadatas"]
             )
             
-            # Estructurar respuesta
             docs = []
             for i in range(len(results["documents"])):
                 docs.append({
@@ -167,7 +276,6 @@ class RAGRetriever:
                     "distance": results["distances"][0][i]
                 })
             
-            # Ordenar por relevancia
             docs.sort(key=lambda x: x["distance"])
             
             return docs
@@ -177,15 +285,13 @@ class RAGRetriever:
             return []
     
     def _normalize_text(self, text: str) -> str:
-        """Normaliza texto para búsqueda."""
+        """Normaliza texto para busqueda."""
         import unicodedata
         import re
-        
-        # Eliminar acentos
+
+        text = re.sub(r'\s*\(\d+\)\s*$', '', text).strip()
         text = unicodedata.normalize('NFD', text.lower())
         text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-        
-        # Reemplazar espacios y caracteres especiales
         text = re.sub(r'[^a-z0-9]+', '_', text)
         text = text.strip('_')
         
