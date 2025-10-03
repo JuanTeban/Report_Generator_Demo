@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 Script para probar la ingesta y vectorización de Business Rules.
 
@@ -13,16 +12,16 @@ import argparse
 import logging
 from pathlib import Path
 import sys
-
-# Ensure project root is on sys.path when running as a script
 try:
-    import app  # type: ignore
+    import app
 except ModuleNotFoundError:
     project_root = Path(__file__).resolve().parents[3]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
 from app.core.etl.business.vectorize import vectorize_business_rules
+
+#Modificar esta incongruencia, pero funciona entonces por ahora no.
 from app.config import settings_etl as etl_settings
 
 
@@ -56,7 +55,6 @@ async def run(args) -> int:
     logger.info(f"Reset colección: {args.reset}")
     logger.info("="*80)
 
-    # Verificar que hay archivos para procesar
     business_files = list(etl_settings.UPLOADS_BUSINESS_DIR.rglob("*"))
     business_files = [f for f in business_files if f.is_file() and f.suffix.lower() in {".pdf", ".txt", ".md"}]
     
@@ -69,7 +67,6 @@ async def run(args) -> int:
     for f in business_files:
         logger.info(f"  - {f.name}")
 
-    # Ejecutar vectorización
     logger.info("Iniciando vectorización de business rules...")
     try:
         result = await vectorize_business_rules(

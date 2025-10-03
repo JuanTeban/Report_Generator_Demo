@@ -1,4 +1,3 @@
-# scripts/generate_report.py
 #!/usr/bin/env python3
 """
 Script CLI para generar reportes.
@@ -12,11 +11,11 @@ import logging
 from pathlib import Path
 import sys
 
-# Agregar el proyecto al path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
 from app.core.report_generator.engine import ReportEngine
+from app.config.settings import REPORTS_DIR
 
 def setup_logging(verbose: bool = False):
     """Configura el logging."""
@@ -35,16 +34,13 @@ async def main(args):
     logger.info(f"Generando reporte para: {args.consultant}")
     
     try:
-        # Inicializar motor
         engine = ReportEngine()
         
-        # Generar reporte
         report = await engine.generate_report(
             consultant_name=args.consultant,
             report_type=args.type
         )
         
-        # Guardar resultado
         if args.output:
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,8 +49,16 @@ async def main(args):
                 json.dump(report, f, indent=2, ensure_ascii=False)
             
             logger.info(f"Reporte guardado en: {output_path}")
+        else:
+            timestamp = report.get('generated_at', '').replace(':', '-').split('.')[0]
+            default_filename = f"{args.consultant.lower().replace(' ', '_')}_reporte_{timestamp}.json"
+            default_path = REPORTS_DIR / default_filename
+            
+            with open(default_path, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Reporte guardado en: {default_path}")
         
-        # Imprimir resumen
         if args.print_summary:
             print("\n" + "="*60)
             print("RESUMEN DEL REPORTE")
@@ -95,7 +99,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--output",
-        help="Archivo de salida (JSON)"
+        help="Archivo de salida (JSON). Si no se especifica, se usa data_store/reports/"
     )
     
     parser.add_argument(

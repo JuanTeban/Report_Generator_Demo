@@ -1,4 +1,3 @@
-# app/utils/embedding_manager.py
 from typing import List, Optional
 from app.core.ia.embeddings import get_embedding_provider
 
@@ -22,7 +21,6 @@ class EmbeddingManager:
             embeddings.append(emb)
         return embeddings
 
-# Singleton
 _embedder = None
 
 def get_embedder():

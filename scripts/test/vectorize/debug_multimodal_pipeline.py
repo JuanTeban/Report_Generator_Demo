@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 Script de debug para pipeline multimodal completo:
 - Extrae metadata del path y del documento
 - Genera chunks con visión
-- Muestra metadatos enriquecidos COMPLETOS
+- Muestra metadatos completos
 - Vectoriza en ChromaDB
-- Genera archivo de debug con todo
+- Genera archivo de debug
 """
 
 import asyncio
@@ -16,7 +15,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-# Agregar el directorio raíz del proyecto al path de Python
 project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
 
@@ -32,16 +30,14 @@ from app.core.etl.multimodal.vectorize import (
 )
 from app.config.settings_etl import CHROMA_COLLECTIONS, DATA_LOG_PATH
 
-# --- CONFIGURACIÓN ---
-# Cambia esta ruta al archivo que quieras probar
-DOCUMENTO_A_PROBAR = Path(
+#Poner la ruta del documento a probar. Esto es de prueba a futuro se debe cambiar la logica
+DOCUMENT_TRY = Path(
     "C:/Users/JuanEstebanGarciaGal/Documents/IBM/Report-generator/data_store/etl_store/"
     "uploads_multimodal/by_ticket/YARLEN_ASTRID_ALVAREZ_BUILES_(203)/"
     "8000002015-D1_RE__CONTRATOS__ERROR_IND_DE_RETENCIÓN/2025-09-24/"
     "EvidenciaHallazgoM�dulo_RE_N�_3_Carga_213.docx"
 )
 
-# Directorio donde se guardarán los archivos de debug
 DEBUG_DIR = DATA_LOG_PATH / "debug_multimodal"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -87,21 +83,18 @@ def save_debug_output(
         f.write(f"✅ Chunks vectorizados: {vectorized_count}/{len(chunks)}\n")
         f.write("\n" + "=" * 100 + "\n\n")
         
-        # METADATA EXTRAÍDA DEL PATH
         f.write("=" * 100 + "\n")
         f.write("METADATA EXTRAÍDA DEL PATH\n")
         f.write("=" * 100 + "\n")
         f.write(json.dumps(path_meta, indent=2, ensure_ascii=False))
         f.write("\n\n")
         
-        # METADATA EXTRAÍDA DEL DOCUMENTO
         f.write("=" * 100 + "\n")
         f.write("METADATA EXTRAÍDA DEL DOCUMENTO (Tablas)\n")
         f.write("=" * 100 + "\n")
         f.write(json.dumps(business_meta, indent=2, ensure_ascii=False))
         f.write("\n\n")
         
-        # CHUNKS CON METADATOS COMPLETOS
         for idx, (chunk, meta_partial, meta_final) in enumerate(
             zip(chunks, metadatas_partial, metadatas_final), start=1
         ):
@@ -144,7 +137,6 @@ async def test_full_pipeline(doc_path: Path):
     print(f"📄 Documento: {doc_path.name}\n")
     
     try:
-        # PASO 1: EXTRACCIÓN DE METADATA DEL PATH
         print("=" * 100)
         print("PASO 1: EXTRACCIÓN DE METADATA DEL PATH")
         print("=" * 100)
@@ -152,7 +144,6 @@ async def test_full_pipeline(doc_path: Path):
         print(json.dumps(path_meta, indent=2, ensure_ascii=False))
         print()
         
-        # PASO 2: PARTICIONADO DEL DOCUMENTO
         print("=" * 100)
         print("PASO 2: PARTICIONADO DEL DOCUMENTO")
         print("=" * 100)
@@ -166,7 +157,6 @@ async def test_full_pipeline(doc_path: Path):
             print("❌ No se extrajo ningún elemento. Abortando.")
             return
         
-        # PASO 3: EXTRACCIÓN DE METADATA DEL DOCUMENTO
         print("=" * 100)
         print("PASO 3: EXTRACCIÓN DE METADATA DEL DOCUMENTO")
         print("=" * 100)
@@ -174,7 +164,6 @@ async def test_full_pipeline(doc_path: Path):
         print(json.dumps(business_meta, indent=2, ensure_ascii=False))
         print()
         
-        # PASO 4: PROCESAMIENTO DE SECCIONES Y VISIÓN
         print("=" * 100)
         print("PASO 4: PROCESAMIENTO DE SECCIONES Y GENERACIÓN DE CHUNKS")
         print("=" * 100)
@@ -189,12 +178,10 @@ async def test_full_pipeline(doc_path: Path):
             print("❌ No se generaron chunks. Abortando.")
             return
         
-        # PASO 5: ENRIQUECIMIENTO DE METADATOS
         print("=" * 100)
         print("PASO 5: ENRIQUECIMIENTO DE METADATOS")
         print("=" * 100)
         
-        # Calcular IDs y normalizaciones
         from app.core.etl.multimodal.vectorize import _norm
         
         id_reporte = path_meta.get("defecto_id_digits", "")
@@ -204,40 +191,31 @@ async def test_full_pipeline(doc_path: Path):
         
         metadatas_final = []
         for i, meta_partial in enumerate(metadatas_partial):
-            # Construir metadata enriquecida (igual que en _process_dir)
             raw = {
-                # Campos básicos
                 "element_type": meta_partial.get("chunk_type", ""),
                 "source_file": doc_path.name,
                 "chunk_index": i,
                 
-                # Responsable
                 "responsable": responsable_clean,
                 "responsable_norm": responsable_norm,
                 "responsable_original": path_meta.get("responsable_original", ""),
                 
-                # Defecto/Caso
                 "defecto": path_meta.get("defecto_original", ""),
                 "defecto_original": path_meta.get("defecto_original", ""),
                 "defect_id_digits": id_reporte,
                 
-                # Metadata de negocio
                 "modulo": business_meta.get("modulo", ""),
                 "proyecto": business_meta.get("proyecto", ""),
                 
-                # IDs
                 "id_reporte": id_reporte,
                 "document_id": document_id,
                 "tipo_organizacion": path_meta.get("tipo_organizacion", ""),
                 
-                # Metadata del chunk (desde process_document_by_section_async)
                 **{k: v for k, v in meta_partial.items() if k not in {"element_type"}},
             }
             
-            # Limpiar valores para ChromaDB
             clean_raw = {k: _clean_meta_value(v) for k, v in raw.items()}
             
-            # Aplicar prepare_metadata
             final_meta = prepare_metadata(clean_raw)
             metadatas_final.append(final_meta)
         
@@ -245,8 +223,6 @@ async def test_full_pipeline(doc_path: Path):
         print("\nEjemplo de metadata final (primer chunk):")
         print(json.dumps(metadatas_final[0], indent=2, ensure_ascii=False))
         print()
-        
-        # PASO 6: VECTORIZACIÓN EN CHROMADB
         print("=" * 100)
         print("PASO 6: VECTORIZACIÓN EN CHROMADB")
         print("=" * 100)
@@ -260,8 +236,6 @@ async def test_full_pipeline(doc_path: Path):
         
         print(f"✅ Vectorización completada: {vectorized_count}/{len(chunks)} chunks")
         print()
-        
-        # PASO 7: GUARDAR ARCHIVO DE DEBUG
         print("=" * 100)
         print("PASO 7: GENERANDO ARCHIVO DE DEBUG")
         print("=" * 100)
@@ -296,8 +270,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 100)
     print("DEBUG PIPELINE MULTIMODAL - METADATA ENRIQUECIDA")
     print("=" * 100)
-    print(f"📍 Documento a probar: {DOCUMENTO_A_PROBAR}")
+    print(f"📍 Documento a probar: {DOCUMENT_TRY}")
     print(f"📁 Directorio de debug: {DEBUG_DIR}")
     print("=" * 100 + "\n")
     
-    asyncio.run(test_full_pipeline(DOCUMENTO_A_PROBAR))
+    asyncio.run(test_full_pipeline(DOCUMENT_TRY))

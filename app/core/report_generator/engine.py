@@ -1,4 +1,3 @@
-# app/core/report_generator/engine.py
 """
 Motor principal de generación de reportes.
 """
@@ -50,7 +49,6 @@ class ReportEngine:
         Returns:
             Dict con las secciones del reporte
         """
-        # Iniciar logging del flujo
         self.flow_logger.start_flow({
             "consultant_name": consultant_name,
             "report_type": report_type,
@@ -59,7 +57,6 @@ class ReportEngine:
         })
         
         try:
-            # 1. Obtener datos SQL
             async with self.flow_logger.step("sql_data_extraction", "Extracción de datos SQL del consultor"):
                 sql_data = await self._get_consultant_data(consultant_name)
                 
@@ -69,12 +66,10 @@ class ReportEngine:
                 
                 self.flow_logger.log_data("sql_data", sql_data, f"Datos SQL extraídos: {len(sql_data)} filas")
             
-            # 2. Recuperar contexto RAG
             async with self.flow_logger.step("rag_context_retrieval", "Recuperación de contexto RAG"):
                 rag_context = await self._get_rag_context(consultant_name, sql_data)
                 self.flow_logger.log_data("rag_context", rag_context, "Contexto RAG recuperado")
             
-            # 3. Generar secciones con LLM
             async with self.flow_logger.step("llm_sections_generation", "Generación de secciones con LLM"):
                 sections = await self._generate_sections(
                     consultant_name,
@@ -83,12 +78,10 @@ class ReportEngine:
                 )
                 self.flow_logger.log_data("sections", sections, "Secciones generadas por LLM")
             
-            # 4. Generar gráficos
             async with self.flow_logger.step("charts_generation", "Generación de gráficos"):
                 charts = await self._generate_charts(sql_data)
                 self.flow_logger.log_data("charts", charts, f"Gráficos generados: {len(charts)}")
             
-            # 5. Compilar reporte final
             async with self.flow_logger.step("report_compilation", "Compilación del reporte final"):
                 report = {
                     "consultant": consultant_name,
@@ -124,21 +117,18 @@ class ReportEngine:
     async def _get_consultant_data(self, consultant_name: str) -> List[Dict[str, Any]]:
         """Obtiene datos del consultor desde DuckDB."""
         
-        # 1. Obtener contexto de esquema
         self.flow_logger.log_info("Obteniendo contexto de esquema para generación de SQL")
         schema_context = await self.retriever.get_schema_context(
             f"datos del consultor {consultant_name}"
         )
         self.flow_logger.log_data("schema_context", schema_context, f"Contexto de esquema: {len(schema_context)} documentos")
         
-        # 2. Generar prompt SQL
         prompt = self.prompt_manager.get_sql_prompt(
             consultant_name,
             schema_context
         )
         self.flow_logger.log_data("sql_prompt", prompt, "Prompt generado para SQL")
         
-        # 3. Generar SQL con LLM
         self.flow_logger.log_llm_request(
             prompt=prompt,
             model=type(self.llm).__name__,
@@ -155,17 +145,14 @@ class ReportEngine:
             usage=sql_response.usage or {}
         )
         
-        # 4. Limpiar SQL
         sql = self._clean_sql(sql_response.content)
         self.flow_logger.log_data("cleaned_sql", sql, "SQL limpio generado por LLM")
         
-        # 5. Ejecutar SQL
         self.flow_logger.log_info("Ejecutando consulta SQL en DuckDB")
         start_time = time.time()
         result = execute_duckdb_query.invoke({"sql_query": sql})
         execution_time = time.time() - start_time
         
-        # 6. Parsear resultado
         import json
         data = json.loads(result)
         
@@ -185,12 +172,11 @@ class ReportEngine:
         """Recupera contexto relevante desde las bases vectoriales."""
         
         context = {
-            "evidence_by_defect": {},  # Organizado por defecto
+            "evidence_by_defect": {},
             "business_rules": [],
             "schemas": []
         }
         
-        # 1. Extraer IDs de defectos de los datos
         defect_ids = self._extract_defect_ids(sql_data)
         self.flow_logger.log_data("defect_ids", defect_ids, f"IDs de defectos extraídos: {len(defect_ids)}")
         
@@ -198,18 +184,16 @@ class ReportEngine:
             self.flow_logger.log_warning("No se encontraron IDs de defectos en los datos SQL")
             return context
         
-        # 2. Recuperar evidencia estructurada por defecto
         self.flow_logger.log_info(f"Recuperando evidencia estructurada para {len(defect_ids)} defectos")
         
         evidence_structured = await self.retriever.get_defect_evidence_structured(
             defect_ids=defect_ids,
             responsable=consultant_name,
-            chunks_per_defect=20  # Límite por defecto y sección
+            chunks_per_defect=20
         )
         
         context["evidence_by_defect"] = evidence_structured
         
-        # Calcular totales para logging
         total_chunks = 0
         for defect_id, sections in evidence_structured.items():
             defect_total = sum(len(chunks) for chunks in sections.values())
@@ -227,7 +211,6 @@ class ReportEngine:
         
         self.flow_logger.log_info(f"Total de chunks recuperados: {total_chunks}")
         
-        # 3. Recuperar reglas de negocio
         query = self._build_context_query(sql_data)
         self.flow_logger.log_rag_query(
             query=query,
@@ -251,7 +234,6 @@ class ReportEngine:
         
         sections = {}
         
-        # 1. Generar resumen ejecutivo
         self.flow_logger.log_info("Generando resumen ejecutivo")
         summary_prompt = self.prompt_manager.get_summary_prompt(
             consultant_name,
@@ -281,7 +263,6 @@ class ReportEngine:
             "execution_time": execution_time
         }, "Resumen ejecutivo generado")
         
-        # 2. Generar recomendaciones
         self.flow_logger.log_info("Generando recomendaciones")
         reco_prompt = self.prompt_manager.get_recommendations_prompt(
             consultant_name,
@@ -329,7 +310,6 @@ class ReportEngine:
         
         charts = {}
         
-        # Generar gráficos estándar
         chart_configs = [
             ("estado_distribution", "estado_de_defecto", "pie"),
             ("module_distribution", "modulo", "bar"),
@@ -342,7 +322,6 @@ class ReportEngine:
         for chart_name, column, chart_type in chart_configs:
             if column in df.columns:
                 try:
-                    # Contar valores únicos para el log
                     unique_values = int(df[column].nunique())
                     self.flow_logger.log_chart_generation(chart_name, chart_type, unique_values)
                     
@@ -389,10 +368,9 @@ class ReportEngine:
     def _build_context_query(self, sql_data: List[Dict[str, Any]]) -> str:
         """Construye query para búsqueda de contexto."""
         
-        # Extraer términos clave
         terms = set()
         
-        for row in sql_data[:10]:  # Limitar para eficiencia
+        for row in sql_data[:10]:
             if "modulo" in row:
                 terms.add(str(row["modulo"]).lower())
             if "categoria_de_defecto" in row:
@@ -404,11 +382,9 @@ class ReportEngine:
         """Limpia la respuesta SQL del LLM."""
         import re
         
-        # Eliminar markdown
         sql = re.sub(r'```sql\s*', '', sql)
         sql = re.sub(r'```\s*$', '', sql)
         
-        # Asegurar punto y coma
         sql = sql.strip()
         if not sql.endswith(';'):
             sql += ';'

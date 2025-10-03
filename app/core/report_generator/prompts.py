@@ -45,8 +45,7 @@ class PromptManager:
         template = self._get_template("sql_generation_for_report_prompt")
         context_str = "\n".join([doc.get("content", "") for doc in schema_context])
         
-        # El prompt original usa :RESPONSABLE, pero .format() choca con {}.
-        # Lo reemplazamos de forma segura.
+
         formatted_prompt = template.replace(":RESPONSABLE", consultant_name)
         
         return formatted_prompt.format(
@@ -58,10 +57,8 @@ class PromptManager:
         """Construye el prompt para el resumen ejecutivo."""
         template = self._get_template("report_summary_prompt")
         
-        # Preparar reglas de negocio
         business_rules = "\n".join([r.get("content", "") for r in rag_context.get("business_rules", [])])
         
-        # Extraer todos los IDs de defectos del SQL
         defect_ids_from_sql = set()
         for row in sql_data:
             defect = str(row.get("defectos", ""))
@@ -70,11 +67,9 @@ class PromptManager:
             if match:
                 defect_ids_from_sql.add(match.group(1))
         
-        # Preparar evidencia de control organizada por defecto
         control_evidence_by_defect = {}
         evidence_by_defect = rag_context.get("evidence_by_defect", {})
         
-        # CRÍTICO: Procesar TODOS los defectos del SQL
         for defect_id in defect_ids_from_sql:
             sections = evidence_by_defect.get(defect_id, {})
             control_chunks = sections.get("control", [])
@@ -88,7 +83,6 @@ class PromptManager:
                     "Usar únicamente los datos del SQL para el contexto."
                 )
         
-        # Formatear evidencia para el prompt
         if control_evidence_by_defect:
             table_evidence_text = "\n\n".join([
                 f"### DEFECTO {defect_id}\n{text}"
@@ -97,7 +91,6 @@ class PromptManager:
         else:
             table_evidence_text = "No se encontró evidencia de control en la base de datos para ningún defecto."
         
-        # Datos SQL como JSON
         data_json = json.dumps(sql_data, indent=2, ensure_ascii=False)
         
         return template.format(
@@ -111,10 +104,8 @@ class PromptManager:
         """Construye el prompt para las recomendaciones."""
         template = self._get_template("report_recommendations_prompt")
         
-        # Preparar reglas de negocio
         business_rules = "\n".join([r.get("content", "") for r in rag_context.get("business_rules", [])])
         
-        # Extraer todos los IDs de defectos del SQL
         defect_ids_from_sql = set()
         for row in sql_data:
             defect = str(row.get("defectos", ""))
@@ -122,18 +113,15 @@ class PromptManager:
             match = re.search(r'\b(\d{6,})\b', defect)
             if match:
                 defect_ids_from_sql.add(match.group(1))
-        
-        # Preparar evidencia multimodal organizada por defecto
+
         multimodal_evidence_by_defect = {}
         evidence_by_defect = rag_context.get("evidence_by_defect", {})
         
-        # CRÍTICO: Procesar TODOS los defectos del SQL, no solo los que tienen chunks
         for defect_id in defect_ids_from_sql:
             sections = evidence_by_defect.get(defect_id, {})
             evidencia_chunks = sections.get("evidencia", [])
             
             if evidencia_chunks:
-                # Si hay chunks, usarlos
                 evidence_texts = []
                 for chunk in evidencia_chunks[:10]:
                     content = chunk.get("content", "")
@@ -141,13 +129,11 @@ class PromptManager:
                     evidence_texts.append(preview)
                 multimodal_evidence_by_defect[defect_id] = "\n\n".join(evidence_texts)
             else:
-                # Si NO hay chunks, indicarlo explícitamente
                 multimodal_evidence_by_defect[defect_id] = (
                     "No se encontró evidencia multimodal detallada para este defecto en la base de datos. "
                     "Basar el análisis únicamente en los datos estructurados del SQL."
                 )
         
-        # Formatear evidencia multimodal para el prompt
         if multimodal_evidence_by_defect:
             multimodal_evidence_text = "\n\n".join([
                 f"### DEFECTO {defect_id}\n{text}"
@@ -156,10 +142,8 @@ class PromptManager:
         else:
             multimodal_evidence_text = "No se encontró evidencia detallada en la base de datos para ningún defecto."
         
-        # Soluciones históricas
         historical_solutions = "No se encontraron soluciones históricas relevantes."
         
-        # Datos SQL como JSON
         data_json = json.dumps(sql_data, indent=2, ensure_ascii=False)
         
         return template.format(

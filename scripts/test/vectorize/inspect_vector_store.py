@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# pyright: reportUnknownVariableType=false, reportUnknownParameterType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
-
 """
+Script a mejorar, lo pruebo y sale un resultado que no es coherente. :c 
+
 Inspector robusto de ChromaDB (no escribe archivos)
 
 - Compatible con versiones donde `get()` NO acepta "ids" en `include`.
@@ -25,25 +25,22 @@ import sys
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Set
 
-# Asegura el project root en sys.path
 try:
     import app  # type: ignore
 except ModuleNotFoundError:
-    # scripts/test/vectorize/... -> parents[3] == project root
     project_root = Path(__file__).resolve().parents[3]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-import chromadb  # type: ignore
+import chromadb
 
-from app.config.settings_etl import (  # Usa el mismo settings que tu vectorizador
+from app.config.settings_etl import (
     VECTOR_STORE_DIR,
-    CHROMA_COLLECTIONS,  # Si no quieres usar este dict, puedes pasar --collection
+    CHROMA_COLLECTIONS,
 )
 
 log = logging.getLogger("chroma_inspector")
 
-# --------------------------- utilidades ---------------------------
 
 def setup_logging(verbose: bool = False) -> None:
     logging.basicConfig(
@@ -57,7 +54,7 @@ def to_seq(x: Any) -> List[Any]:
     if x is None:
         return []
     try:
-        if hasattr(x, "tolist"):  # numpy.ndarray
+        if hasattr(x, "tolist"):
             return x.tolist()
         return list(x)
     except Exception:

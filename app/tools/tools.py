@@ -1,4 +1,3 @@
-# app/tools/tools.py
 import duckdb
 import json
 from app.config.settings_etl import DUCKDB_PATH
@@ -28,5 +27,4 @@ class DuckDBTool:
                 "json_data": []
             })
 
-# Instancia global
 execute_duckdb_query = DuckDBTool()
