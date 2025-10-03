@@ -1,4 +1,3 @@
-# app/core/report_generator/charts.py
 import pandas as pd
 from typing import Dict, Any, Optional
 

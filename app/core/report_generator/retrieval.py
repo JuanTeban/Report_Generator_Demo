@@ -1,4 +1,3 @@
-# app/core/report_generator/retrieval.py
 """
 Sistema de recuperación RAG limpio y modular.
 Separa la recuperación de la presentación.
@@ -154,11 +153,10 @@ class RAGRetriever:
         """
         structured_evidence = {}
         
-        # Secciones relevantes para cada propósito
         sections_map = {
             "control": "control_de_la_plantilla_y_documento",
             "evidencia": "descripcion_y_evidencia_hallazgo",
-            "solucion": "respuesta_consultoria"  # Si existe
+            "solucion": "respuesta_consultoria"
         }
         
         for defect_id in defect_ids:
