@@ -1,4 +1,3 @@
-# app/agents/core/agent_message.py
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 from datetime import datetime

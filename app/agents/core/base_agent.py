@@ -1,4 +1,3 @@
-# app/agents/core/base_agent.py
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 import logging
@@ -33,7 +32,6 @@ class BaseAgent(ABC):
         self.llm = llm_provider or self._get_default_llm()
         self.max_iterations = max_iterations
         
-        # Logger específico
         self.logger = get_flow_logger(
             flow_name=f"agent_{name}",
             sub_dir="logs_agents",
@@ -41,7 +39,6 @@ class BaseAgent(ABC):
             enable_console=True
         )
         
-        # Memoria
         self.memory: List[AgentMessage] = []
 
         self._current_run_context: Dict[str, Any] = {}
@@ -83,7 +80,6 @@ class BaseAgent(ABC):
         context = context or {}
         iteration = 0
         
-        # NUEVO: Sincronizar contexto actual
         self._current_run_context = context
         
         try:
@@ -95,7 +91,6 @@ class BaseAgent(ABC):
                     iteration += 1
                     self.logger.log_info(f"Iteration {iteration}/{self.max_iterations}")
                     
-                    # THOUGHT: ¿Qué debo hacer?
                     thought = await self._think(task, context)
                     self.logger.log_data(
                         "thought",
@@ -103,7 +98,6 @@ class BaseAgent(ABC):
                         f"Agent decision (iteration {iteration})"
                     )
                     
-                    # ¿Es la respuesta final?
                     if thought.get("action") == "final_answer":
                         self.logger.log_info("Agent reached final answer")
                         result = AgentMessage(
@@ -118,13 +112,11 @@ class BaseAgent(ABC):
                         )
                         self.memory.append(result)
                         
-                        # NUEVO: Limpiar contexto al finalizar
                         self._current_run_context = {}
                         
                         self.logger.end_flow(success=True)
                         return result
                     
-                    # ACTION: Usar tool
                     if thought.get("action") == "use_tool":
                         tool_name = thought.get("tool_name")
                         tool_args = thought.get("tool_args", {})
@@ -136,7 +128,6 @@ class BaseAgent(ABC):
                             f"Tool result: {tool_name}"
                         )
                         
-                        # Actualizar contexto
                         context["last_observation"] = observation.model_dump()
                         context["tool_history"] = context.get("tool_history", [])
                         context["tool_history"].append({
@@ -145,10 +136,8 @@ class BaseAgent(ABC):
                             "result": observation.model_dump()
                         })
                         
-                        # NUEVO: Mantener sincronizado
                         self._current_run_context = context
                 
-                # Max iterations
                 self.logger.log_warning(f"Max iterations ({self.max_iterations}) reached")
                 error_result = AgentMessage(
                     sender=self.name,
@@ -161,7 +150,6 @@ class BaseAgent(ABC):
                     success=False
                 )
                 
-                # NUEVO: Limpiar contexto
                 self._current_run_context = {}
                 
                 self.logger.end_flow(success=False, error="Max iterations")
@@ -176,7 +164,6 @@ class BaseAgent(ABC):
                 success=False
             )
             
-            # NUEVO: Limpiar contexto
             self._current_run_context = {}
             
             self.logger.end_flow(success=False, error=str(e))
@@ -195,7 +182,6 @@ class BaseAgent(ABC):
                 "answer": "..."
             }
         """
-        # Construir prompt completo y detallado
         full_prompt = self._build_full_prompt(task, context)
         
         self.logger.log_llm_request(
@@ -204,7 +190,6 @@ class BaseAgent(ABC):
             {"temperature": 0.3, "task": "reasoning"}
         )
         
-        # LLM decide qué hacer
         response = await self.llm.generate_async(full_prompt, temperature=0.3)
         
         self.logger.log_llm_response(
@@ -213,7 +198,6 @@ class BaseAgent(ABC):
             response.usage or {}
         )
         
-        # Parsear decisión
         try:
             decision = self._parse_llm_decision(response.content)
             return decision
@@ -224,24 +208,18 @@ class BaseAgent(ABC):
     def _build_full_prompt(self, task: str, context: Dict) -> str:
         """Construye prompt COMPLETO y DETALLADO para el LLM"""
         
-        # Instrucciones específicas del agente si las tiene
         agent_instructions = getattr(self, 'agent_instructions', '')
         
-        # Catálogo de tools con schemas completos
         tools_catalog = self._get_tools_catalog()
         
-        # Historial formateado para el LLM - CRÍTICO: Formateo inteligente
         tool_history = context.get("tool_history", [])
         history_text = self._format_history_for_llm(tool_history)
         
-        # Última observación
         last_obs = context.get("last_observation")
         observation_text = self._format_last_observation(last_obs)
         
-        # Análisis guiado
         analysis_guide = self._get_analysis_guide(tool_history, task)
         
-        # Prompt completo
         return f"""
                 {BASE_AGENT_INSTRUCTIONS}
 
@@ -299,7 +277,7 @@ class BaseAgent(ABC):
 
     def _format_history_for_llm(self, tool_history: List[Dict]) -> str:
         """
-        CRÍTICO: Formatea historial de forma INTELIGENTE para el LLM.
+        Formatea historial de forma INTELIGENTE para el LLM.
         No truncar datos importantes como listas de resultados.
         """
         if not tool_history:
@@ -313,21 +291,18 @@ class BaseAgent(ABC):
             success = result.get("success")
             status = "✓ ÉXITO" if success else "✗ FALLÓ"
             
-            # Mostrar datos de forma inteligente
             if success:
                 data = result.get("data")
                 metadata = result.get("metadata", {})
                 
-                # ESTRATEGIA INTELIGENTE DE FORMATEO
                 if tool_name == "sql_data_extraction":
-                    # Para SQL, mostrar METADATOS, no datos crudos
                     row_count = metadata.get("row_count", len(data) if isinstance(data, list) else 0)
                     formatted.append(
                         f"{i}. {status} - Tool: {tool_name}\n"
                         f"   Args: {args}\n"
                         f"   RESULTADOS: {row_count} filas extraídas\n"
                         f"   SQL ejecutado: {metadata.get('sql_executed', 'N/A')[:100]}...\n"
-                        f"   📊 IMPORTANTE: Hay {row_count} defectos en total"
+                        f"   IMPORTANTE: Hay {row_count} defectos en total"
                     )
                 elif tool_name == "evidence_retrieval":
                     total_chunks = metadata.get("total_chunks", 0)
@@ -361,7 +336,6 @@ class BaseAgent(ABC):
                         f"   Nombres: {chart_names}"
                     )
                 else:
-                    # Para otros tools, mostrar preview corto
                     data_str = str(data)[:200] if data else "Sin datos"
                     formatted.append(
                         f"{i}. {status} - Tool: {tool_name}\n"
@@ -422,15 +396,12 @@ class BaseAgent(ABC):
         import json
         import re
         
-        # Limpiar markdown si existe
         cleaned = re.sub(r'```json\s*', '', llm_response)
         cleaned = re.sub(r'```\s*$', '', cleaned)
         cleaned = cleaned.strip()
         
-        # Parsear JSON
         decision = json.loads(cleaned)
         
-        # Validar estructura mínima
         if "action" not in decision:
             raise ValueError("Falta campo 'action' en decisión")
         
@@ -453,7 +424,6 @@ class BaseAgent(ABC):
         """Decisión de emergencia si falla el parsing"""
         self.logger.log_warning("Usando fallback decision por error de parsing")
         
-        # Si menciona una tool específica, intentar usarla
         for tool_name in self.tools.keys():
             if tool_name in llm_response.lower():
                 return {
@@ -463,7 +433,6 @@ class BaseAgent(ABC):
                     "tool_args": {}
                 }
         
-        # Si no, dar respuesta final con lo que dijo el LLM
         return {
             "reasoning": "Fallback: no pude parsear decisión JSON",
             "action": "final_answer",

@@ -1,4 +1,3 @@
-# app/agents/specialized/report_agent.py
 from typing import Dict, Any, List
 from datetime import datetime
 import re
@@ -14,7 +13,6 @@ class ReportAgent(BaseAgent):
     """
     
     def __init__(self):
-        # Cargar todas las tools necesarias
         tools = [
             ToolRegistry.get("sql_data_extraction"),
             ToolRegistry.get("evidence_retrieval"),
@@ -24,7 +22,6 @@ class ReportAgent(BaseAgent):
             ToolRegistry.get("chart_generation")
         ]
         
-        # Filtrar None
         tools = [t for t in tools if t is not None]
         
         super().__init__(
@@ -33,7 +30,6 @@ class ReportAgent(BaseAgent):
             max_iterations=15
         )
         
-        # Instrucciones específicas (el LLM las leerá)
         self.agent_instructions = REPORT_AGENT_INSTRUCTIONS
     
     async def process_task(self, task: str, context: Dict[str, Any]) -> AgentMessage:
@@ -55,7 +51,6 @@ class ReportAgent(BaseAgent):
                 success=False
             )
         
-        # Tarea clara para el agente
         task_description = (
             f"Genera un reporte completo tipo '{report_type}' para el consultor: {consultant_name}. "
             f"Usa las tools disponibles de forma inteligente para obtener "
@@ -83,11 +78,9 @@ class ReportAgent(BaseAgent):
         if not result.success:
             return self._error_report(consultant_name, result.content)
         
-        # Usar el contexto del resultado que tiene todo el historial
         final_context = result.metadata.get("context", context)
         return self._compile_report(consultant_name, report_type, final_context)
     
-    # ============= HELPERS INTELIGENTES =============
     
     async def _execute_tool(self, tool_name: str, tool_args: Dict) -> Any:
         """
@@ -95,7 +88,6 @@ class ReportAgent(BaseAgent):
         CRÍTICO: NO usar datos del LLM, usar datos REALES del historial.
         """
         
-        # Enriquecer con datos REALES
         tool_args = await self._enrich_tool_args_smart(tool_name, tool_args)
         
         self.logger.log_info(
@@ -103,7 +95,7 @@ class ReportAgent(BaseAgent):
             {"args_final": self._safe_preview(tool_args)}
         )
         
-        # Ejecutar con BaseAgent
+        
         return await super()._execute_tool(tool_name, tool_args)
     
     async def _enrich_tool_args_smart(
@@ -119,7 +111,6 @@ class ReportAgent(BaseAgent):
         2. Para otras tools:
         - Solo completar parámetros faltantes
         """
-        # CAMBIO CRÍTICO: Usar contexto del run actual, no de memory
         context = self._current_run_context
         tool_history = context.get("tool_history", [])
         
@@ -131,26 +122,21 @@ class ReportAgent(BaseAgent):
             }
         )
         
-        # ESTRATEGIA POR TOOL
         if tool_name == "sql_data_extraction":
-            # Simple: solo consultant_name
             if "consultant_name" not in tool_args:
                 tool_args["consultant_name"] = context.get("consultant_name")
         
         elif tool_name == "evidence_retrieval":
-            # CRÍTICO: Obtener IDs reales del SQL
             sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
             
             if sql_result and sql_result.get("success"):
                 sql_data = sql_result.get("data", [])
                 if sql_data:
                     extracted_ids = self._extract_defect_ids(sql_data)
-                    
-                    # SOBREESCRIBIR lo que pasó el LLM
                     tool_args["defect_ids"] = extracted_ids
                     
                     self.logger.log_info(
-                        f"📊 Defect IDs extraídos del SQL: {len(extracted_ids)}",
+                        f"Defect IDs extraídos del SQL: {len(extracted_ids)}",
                         {"ids": extracted_ids, "sql_rows": len(sql_data)}
                     )
             
@@ -158,7 +144,6 @@ class ReportAgent(BaseAgent):
                 tool_args["consultant_name"] = context.get("consultant_name")
         
         elif tool_name == "business_rules":
-            # Construir query desde SQL real
             if "query" not in tool_args or not tool_args["query"]:
                 sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
                 if sql_result and sql_result.get("success"):
@@ -169,7 +154,6 @@ class ReportAgent(BaseAgent):
                 tool_args["top_k"] = 5
         
         elif tool_name in ["summary_generation", "recommendations_generation"]:
-            # CRÍTICO: SIEMPRE usar datos reales, NUNCA los del LLM
             sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
             if sql_result and sql_result.get("success"):
                 tool_args["sql_data"] = sql_result.get("data", [])
@@ -180,7 +164,6 @@ class ReportAgent(BaseAgent):
                 tool_args["sql_data"] = []
                 self.logger.log_warning(f"⚠️ No hay datos SQL disponibles para {tool_name}")
             
-            # RAG context desde resultados reales
             evidence_result = self._find_tool_result(tool_history, "evidence_retrieval")
             rules_result = self._find_tool_result(tool_history, "business_rules")
             
@@ -194,12 +177,11 @@ class ReportAgent(BaseAgent):
                 tool_args["consultant_name"] = context.get("consultant_name")
         
         elif tool_name == "chart_generation":
-            # CRÍTICO: usar datos reales
             sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
             if sql_result and sql_result.get("success"):
                 tool_args["sql_data"] = sql_result.get("data", [])
                 self.logger.log_info(
-                    f"📊 Usando {len(tool_args['sql_data'])} filas reales para gráficos"
+                    f"Usando {len(tool_args['sql_data'])} filas reales para gráficos"
                 )
             else:
                 tool_args["sql_data"] = []
@@ -231,7 +213,6 @@ class ReportAgent(BaseAgent):
         else:
             return str(data)[:max_len]
     
-    # ============= COMPILACIÓN =============
     
     def _compile_report(
         self,
@@ -242,7 +223,6 @@ class ReportAgent(BaseAgent):
         """Compila reporte desde historial"""
         tool_history = context.get("tool_history", [])
         
-        # Extraer resultados
         sql_data = []
         evidence_count = 0
         summary = ""
@@ -321,7 +301,6 @@ class ReportAgent(BaseAgent):
             "metadata": {"version": "2.0-adaptive-llm", "error": error}
         }
     
-    # ============= UTILITIES =============
     
     def _extract_defect_ids(self, sql_data: List[Dict]) -> List[str]:
         """Extrae IDs de defectos de TODAS las filas"""

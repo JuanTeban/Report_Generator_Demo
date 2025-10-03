@@ -1,4 +1,3 @@
-# app/agents/__init__.py
 from .core import BaseAgent, AgentMessage
 from .specialized import ReportAgent
 

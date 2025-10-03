@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Script para generar reportes con ReportAgent (Fase 2).
-Interfaz compatible con generate_report.py original.
+Script para generar reportes con ReportAgent.
 """
 import asyncio
 import argparse
@@ -33,16 +32,13 @@ async def main(args):
     logger.info(f"Generando reporte v2 (agente) para: {args.consultant}")
     
     try:
-        # Crear agente
         agent = ReportAgent()
         
-        # Generar reporte
         report = await agent.generate_report(
             consultant_name=args.consultant,
             report_type=args.type
         )
         
-        # Guardar
         if args.output:
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
