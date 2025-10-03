@@ -29,7 +29,7 @@ class SqlDataExtractionTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Ejecuta consulta SQL optimizada para extraer todos los datos "
+            "Ejecuta consulta SQL optimizada para extraer TODOS los datos "
             "de defectos asignados a un consultor específico desde DuckDB"
         )
     
@@ -50,6 +50,7 @@ class SqlDataExtractionTool(BaseTool):
             ToolOutput con json_data, row_count, sql_executed
         """
         try:
+            # 1. Obtener contexto de esquema
             schema_context = await self.retriever.get_schema_context(
                 f"datos del consultor {consultant_name}"
             )
@@ -61,27 +62,36 @@ class SqlDataExtractionTool(BaseTool):
                     error="No se encontró contexto de esquema en la base de datos"
                 )
             
-            # 2. Generar SQL con LLM
-            prompt = self.prompt_manager.get_sql_prompt(
-                consultant_name,
-                schema_context
-            )
+            # 2. Generar SQL con LLM - PROMPT MEJORADO
+            prompt = self._build_sql_prompt(consultant_name, schema_context)
             
             sql_response = await self.llm.generate_async(prompt)
             
             # 3. Limpiar SQL
             sql = self._clean_sql(sql_response.content)
             
-            # 4. Ejecutar consulta
+            print(f"\n{'='*80}")
+            print(f"SQL GENERADO POR LLM:")
+            print(sql)
+            print(f"{'='*80}\n")
+            # 4. VALIDAR que no tenga LIMIT
+            sql = self._ensure_no_limit(sql)
+
+
+            
+            # 5. Ejecutar consulta
             result = execute_duckdb_query.invoke({"sql_query": sql})
             data = json.loads(result)
             
             if "json_data" in data and data["json_data"]:
+                row_count = len(data["json_data"])
+                print(f"✓ SQL extrajo {row_count} filas para {consultant_name}")
+                
                 return ToolOutput(
                     success=True,
                     data=data["json_data"],
                     metadata={
-                        "row_count": len(data["json_data"]),
+                        "row_count": row_count,
                         "sql_executed": sql,
                         "consultant": consultant_name
                     }
@@ -101,11 +111,35 @@ class SqlDataExtractionTool(BaseTool):
                 error=f"Error en extracción SQL: {str(e)}"
             )
     
+    def _build_sql_prompt(self, consultant_name: str, schema_context: str) -> str:
+        """Construye prompt específico sin usar PromptManager"""
+        return f"""Eres un experto en SQL y DuckDB. Devuelve UNA sola consulta SQL ejecutable.
+
+REGLAS CRÍTICAS:
+1) Filtro por responsable: usa UPPER(responsable_del_defecto) LIKE UPPER('%{consultant_name}%')
+2) NUNCA uses LIMIT - queremos TODOS los registros del consultor
+3) Ordena por antigüedad descendente: ORDER BY CAST(REPLACE(antiguedad_del_defecto_promedio_en_dias, ',', '.') AS FLOAT) DESC
+4) Devuelve SOLO el SQL, sin explicaciones
+
+ESQUEMA:
+{schema_context}
+
+TAREA: 
+Genera SQL que extraiga TODOS los defectos de "{consultant_name}" sin límite de filas.
+
+SQL:"""
+    
     def _clean_sql(self, sql: str) -> str:
-        """Limpia respuesta SQL del LLM (copiado de ReportEngine)"""
+        """Limpia respuesta SQL del LLM"""
         sql = re.sub(r'```sql\s*', '', sql)
         sql = re.sub(r'```\s*$', '', sql)
         sql = sql.strip()
         if not sql.endswith(';'):
             sql += ';'
+        return sql
+    
+    def _ensure_no_limit(self, sql: str) -> str:
+        """Asegura que no haya LIMIT en la query"""
+        # Remover cualquier LIMIT que el LLM haya agregado
+        sql = re.sub(r'\s+LIMIT\s+\d+', '', sql, flags=re.IGNORECASE)
         return sql

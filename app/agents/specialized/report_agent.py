@@ -5,11 +5,12 @@ import re
 
 from app.agents.core import BaseAgent, AgentMessage
 from app.tools.core import ToolRegistry
+from app.config.settings_agents import REPORT_AGENT_INSTRUCTIONS
 
 class ReportAgent(BaseAgent):
     """
     Agente especializado en generación de reportes.
-    Reemplaza a ReportEngine usando arquitectura de tools.
+    Usa razonamiento adaptativo LLM (NO secuencia hardcodeada).
     """
     
     def __init__(self):
@@ -23,14 +24,17 @@ class ReportAgent(BaseAgent):
             ToolRegistry.get("chart_generation")
         ]
         
-        # Filtrar None (por si alguna tool no está registrada)
+        # Filtrar None
         tools = [t for t in tools if t is not None]
         
         super().__init__(
             name="ReportAgent",
             tools=tools,
-            max_iterations=15  # Más iteraciones para reportes complejos
+            max_iterations=15
         )
+        
+        # Instrucciones específicas (el LLM las leerá)
+        self.agent_instructions = REPORT_AGENT_INSTRUCTIONS
     
     async def process_task(self, task: str, context: Dict[str, Any]) -> AgentMessage:
         """
@@ -38,7 +42,7 @@ class ReportAgent(BaseAgent):
         
         Context debe contener:
             - consultant_name: str
-            - report_type: str (opcional, default="preview")
+            - report_type: str (opcional)
         """
         consultant_name = context.get("consultant_name")
         report_type = context.get("report_type", "preview")
@@ -51,12 +55,11 @@ class ReportAgent(BaseAgent):
                 success=False
             )
         
-        # Ejecutar con el loop de razonamiento del BaseAgent
+        # Tarea clara para el agente
         task_description = (
             f"Genera un reporte completo tipo '{report_type}' para el consultor: {consultant_name}. "
-            f"Debes: 1) Extraer datos SQL, 2) Recuperar evidencia RAG, "
-            f"3) Obtener reglas de negocio, 4) Generar resumen y recomendaciones, "
-            f"5) Crear gráficos. Al final, compila todo en un reporte JSON estructurado."
+            f"Usa las tools disponibles de forma inteligente para obtener "
+            f"datos SQL, evidencia, reglas de negocio, generar análisis y gráficos."
         )
         
         return await self.run(task_description, context)
@@ -66,29 +69,169 @@ class ReportAgent(BaseAgent):
         consultant_name: str,
         report_type: str = "preview"
     ) -> Dict[str, Any]:
-        """
-        Interfaz compatible con ReportEngine.generate_report()
-        
-        Returns:
-            Dict con estructura idéntica al reporte original
-        """
+        """Interfaz compatible con ReportEngine"""
         context = {
             "consultant_name": consultant_name,
             "report_type": report_type
         }
         
-        # Procesar tarea
         result = await self.process_task(
             task=f"Generar reporte para {consultant_name}",
             context=context
         )
         
         if not result.success:
-            # Reporte de error
             return self._error_report(consultant_name, result.content)
         
-        # Compilar reporte desde el contexto de tools
-        return self._compile_report(consultant_name, report_type, context)
+        # Usar el contexto del resultado que tiene todo el historial
+        final_context = result.metadata.get("context", context)
+        return self._compile_report(consultant_name, report_type, final_context)
+    
+    # ============= HELPERS INTELIGENTES =============
+    
+    async def _execute_tool(self, tool_name: str, tool_args: Dict) -> Any:
+        """
+        Override para enriquecer argumentos automáticamente.
+        CRÍTICO: NO usar datos del LLM, usar datos REALES del historial.
+        """
+        
+        # Enriquecer con datos REALES
+        tool_args = await self._enrich_tool_args_smart(tool_name, tool_args)
+        
+        self.logger.log_info(
+            f"✓ Args finales para {tool_name}",
+            {"args_final": self._safe_preview(tool_args)}
+        )
+        
+        # Ejecutar con BaseAgent
+        return await super()._execute_tool(tool_name, tool_args)
+    
+    async def _enrich_tool_args_smart(
+        self,
+        tool_name: str,
+        tool_args: Dict
+    ) -> Dict:
+        """
+        ESTRATEGIA INTELIGENTE:
+        1. Para tools de análisis (summary, recommendations, charts):
+        - IGNORAR lo que pasa el LLM
+        - OBTENER datos reales del historial
+        2. Para otras tools:
+        - Solo completar parámetros faltantes
+        """
+        # CAMBIO CRÍTICO: Usar contexto del run actual, no de memory
+        context = self._current_run_context
+        tool_history = context.get("tool_history", [])
+        
+        self.logger.log_info(
+            f"Enriqueciendo tool: {tool_name}",
+            {
+                "args_llm": tool_args,
+                "tool_history_count": len(tool_history)
+            }
+        )
+        
+        # ESTRATEGIA POR TOOL
+        if tool_name == "sql_data_extraction":
+            # Simple: solo consultant_name
+            if "consultant_name" not in tool_args:
+                tool_args["consultant_name"] = context.get("consultant_name")
+        
+        elif tool_name == "evidence_retrieval":
+            # CRÍTICO: Obtener IDs reales del SQL
+            sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
+            
+            if sql_result and sql_result.get("success"):
+                sql_data = sql_result.get("data", [])
+                if sql_data:
+                    extracted_ids = self._extract_defect_ids(sql_data)
+                    
+                    # SOBREESCRIBIR lo que pasó el LLM
+                    tool_args["defect_ids"] = extracted_ids
+                    
+                    self.logger.log_info(
+                        f"📊 Defect IDs extraídos del SQL: {len(extracted_ids)}",
+                        {"ids": extracted_ids, "sql_rows": len(sql_data)}
+                    )
+            
+            if "consultant_name" not in tool_args:
+                tool_args["consultant_name"] = context.get("consultant_name")
+        
+        elif tool_name == "business_rules":
+            # Construir query desde SQL real
+            if "query" not in tool_args or not tool_args["query"]:
+                sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
+                if sql_result and sql_result.get("success"):
+                    sql_data = sql_result.get("data", [])
+                    tool_args["query"] = self._build_context_query(sql_data)
+            
+            if "top_k" not in tool_args:
+                tool_args["top_k"] = 5
+        
+        elif tool_name in ["summary_generation", "recommendations_generation"]:
+            # CRÍTICO: SIEMPRE usar datos reales, NUNCA los del LLM
+            sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
+            if sql_result and sql_result.get("success"):
+                tool_args["sql_data"] = sql_result.get("data", [])
+                self.logger.log_info(
+                    f"✓ Usando {len(tool_args['sql_data'])} filas reales para {tool_name}"
+                )
+            else:
+                tool_args["sql_data"] = []
+                self.logger.log_warning(f"⚠️ No hay datos SQL disponibles para {tool_name}")
+            
+            # RAG context desde resultados reales
+            evidence_result = self._find_tool_result(tool_history, "evidence_retrieval")
+            rules_result = self._find_tool_result(tool_history, "business_rules")
+            
+            tool_args["rag_context"] = {
+                "evidence_by_defect": evidence_result.get("data", {}) if evidence_result and evidence_result.get("success") else {},
+                "business_rules": rules_result.get("data", []) if rules_result and rules_result.get("success") else [],
+                "schemas": []
+            }
+            
+            if "consultant_name" not in tool_args:
+                tool_args["consultant_name"] = context.get("consultant_name")
+        
+        elif tool_name == "chart_generation":
+            # CRÍTICO: usar datos reales
+            sql_result = self._find_tool_result(tool_history, "sql_data_extraction")
+            if sql_result and sql_result.get("success"):
+                tool_args["sql_data"] = sql_result.get("data", [])
+                self.logger.log_info(
+                    f"📊 Usando {len(tool_args['sql_data'])} filas reales para gráficos"
+                )
+            else:
+                tool_args["sql_data"] = []
+        
+        self.logger.log_info(
+            f"✓ Args finales para {tool_name}",
+            {"has_sql_data": "sql_data" in tool_args, "sql_rows": len(tool_args.get("sql_data", []))}
+        )
+        
+        return tool_args
+    
+    def _find_tool_result(self, tool_history: List[Dict], tool_name: str) -> Dict:
+        """
+        Busca resultado de una tool en el historial COMPLETO.
+        Retorna el dict result con {success, data, metadata}.
+        """
+        for entry in reversed(tool_history):
+            if entry.get("tool") == tool_name:
+                return entry.get("result", {})
+        return {}
+    
+    def _safe_preview(self, data: Any, max_len: int = 100) -> Any:
+        """Preview seguro para logging"""
+        if isinstance(data, list) and len(data) > 0:
+            return f"[{len(data)} items] First: {str(data[0])[:max_len]}..."
+        elif isinstance(data, dict):
+            keys = list(data.keys())[:5]
+            return f"{{keys: {keys}, ...}}"
+        else:
+            return str(data)[:max_len]
+    
+    # ============= COMPILACIÓN =============
     
     def _compile_report(
         self,
@@ -96,12 +239,10 @@ class ReportAgent(BaseAgent):
         report_type: str,
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Compila el reporte final desde el historial de tools.
-        """
+        """Compila reporte desde historial"""
         tool_history = context.get("tool_history", [])
         
-        # Extraer resultados de cada tool
+        # Extraer resultados
         sql_data = []
         evidence_count = 0
         summary = ""
@@ -118,25 +259,27 @@ class ReportAgent(BaseAgent):
             
             if tool_name == "sql_data_extraction":
                 sql_data = data or []
+                self.logger.log_info(f"✓ SQL data compilado: {len(sql_data)} filas")
             
             elif tool_name == "evidence_retrieval":
                 if data:
-                    for defect_sections in data.values():
-                        evidence_count += sum(
-                            len(chunks) for chunks in defect_sections.values()
-                        )
+                    for sections in data.values():
+                        evidence_count += sum(len(chunks) for chunks in sections.values())
+                self.logger.log_info(f"✓ Evidencia compilada: {evidence_count} chunks")
             
             elif tool_name == "summary_generation":
                 summary = data or ""
+                self.logger.log_info(f"✓ Summary compilado: {len(summary)} chars")
             
             elif tool_name == "recommendations_generation":
                 recommendations = data or ""
+                self.logger.log_info(f"✓ Recommendations compiladas: {len(recommendations)} chars")
             
             elif tool_name == "chart_generation":
                 charts = data or {}
+                self.logger.log_info(f"✓ Charts compilados: {len(charts)} gráficos")
         
-        # Estructura idéntica a ReportEngine
-        return {
+        report = {
             "consultant": consultant_name,
             "generated_at": datetime.now().isoformat(),
             "type": report_type,
@@ -150,171 +293,69 @@ class ReportAgent(BaseAgent):
             },
             "charts": charts,
             "metadata": {
-                "sql_template": None,
-                "version": "2.0-agent",
+                "version": "2.0-adaptive-llm",
                 "agent": self.name
             }
         }
+        
+        self.logger.log_info("📋 Reporte compilado", {
+            "sql_rows": len(sql_data),
+            "evidence_count": evidence_count,
+            "charts": len(charts)
+        })
+        
+        return report
     
     def _error_report(self, consultant_name: str, error: str) -> Dict[str, Any]:
-        """Genera reporte de error"""
+        """Reporte de error"""
         return {
             "consultant": consultant_name,
             "generated_at": datetime.now().isoformat(),
             "type": "error",
             "data": {"sql_rows": 0, "evidence_count": 0},
             "sections": {
-                "summary": f"Error generando reporte: {error}",
-                "recommendations": "No disponible debido a errores"
+                "summary": f"Error: {error}",
+                "recommendations": "No disponible"
             },
             "charts": {},
-            "metadata": {"version": "2.0-agent", "error": error}
+            "metadata": {"version": "2.0-adaptive-llm", "error": error}
         }
     
-    async def _think(self, task: str, context: Dict) -> Dict[str, Any]:
-        """
-        Override para mejorar razonamiento específico de reportes.
-        """
-        tool_history = context.get("tool_history", [])
-        
-        # Lógica de decisión más inteligente para reportes
-        completed_tools = {entry["tool"] for entry in tool_history}
-        
-        # Plan de ejecución secuencial
-        required_sequence = [
-            ("sql_data_extraction", "Extraer datos SQL del consultor"),
-            ("evidence_retrieval", "Recuperar evidencia multimodal"),
-            ("business_rules", "Obtener reglas de negocio"),
-            ("summary_generation", "Generar resumen ejecutivo"),
-            ("recommendations_generation", "Generar recomendaciones"),
-            ("chart_generation", "Crear gráficos")
-        ]
-        
-        # Determinar siguiente paso
-        for tool_name, description in required_sequence:
-            if tool_name not in completed_tools:
-                # Preparar argumentos según la tool
-                tool_args = self._prepare_tool_args(
-                    tool_name,
-                    context,
-                    tool_history
-                )
-                
-                return {
-                    "reasoning": f"Siguiente paso: {description}",
-                    "action": "use_tool",
-                    "tool_name": tool_name,
-                    "tool_args": tool_args
-                }
-        
-        # Todas las tools ejecutadas, dar respuesta final
-        return {
-            "reasoning": "Todas las tools ejecutadas exitosamente, compilando reporte",
-            "action": "final_answer",
-            "answer": "Reporte generado exitosamente. Ver tool_history para detalles."
-        }
-    
-    def _prepare_tool_args(
-        self,
-        tool_name: str,
-        context: Dict,
-        tool_history: List[Dict]
-    ) -> Dict[str, Any]:
-        """Prepara argumentos para cada tool según el contexto"""
-        
-        consultant_name = context.get("consultant_name")
-        
-        if tool_name == "sql_data_extraction":
-            return {"consultant_name": consultant_name}
-        
-        elif tool_name == "evidence_retrieval":
-            # Necesita defect_ids del SQL
-            sql_data = self._get_tool_data(tool_history, "sql_data_extraction")
-            defect_ids = self._extract_defect_ids(sql_data)
-            return {
-                "defect_ids": defect_ids,
-                "consultant_name": consultant_name
-            }
-        
-        elif tool_name == "business_rules":
-            # Construir query desde SQL data
-            sql_data = self._get_tool_data(tool_history, "sql_data_extraction")
-            query = self._build_context_query(sql_data)
-            return {"query": query, "top_k": 5}
-        
-        elif tool_name == "summary_generation":
-            sql_data = self._get_tool_data(tool_history, "sql_data_extraction")
-            evidence = self._get_tool_data(tool_history, "evidence_retrieval")
-            rules = self._get_tool_data(tool_history, "business_rules")
-            
-            rag_context = {
-                "evidence_by_defect": evidence or {},
-                "business_rules": rules or [],
-                "schemas": []
-            }
-            
-            return {
-                "consultant_name": consultant_name,
-                "sql_data": sql_data or [],
-                "rag_context": rag_context
-            }
-        
-        elif tool_name == "recommendations_generation":
-            sql_data = self._get_tool_data(tool_history, "sql_data_extraction")
-            evidence = self._get_tool_data(tool_history, "evidence_retrieval")
-            rules = self._get_tool_data(tool_history, "business_rules")
-            
-            rag_context = {
-                "evidence_by_defect": evidence or {},
-                "business_rules": rules or [],
-                "schemas": []
-            }
-            
-            return {
-                "consultant_name": consultant_name,
-                "sql_data": sql_data or [],
-                "rag_context": rag_context
-            }
-        
-        elif tool_name == "chart_generation":
-            sql_data = self._get_tool_data(tool_history, "sql_data_extraction")
-            return {"sql_data": sql_data or []}
-        
-        return {}
-    
-    def _get_tool_data(self, tool_history: List[Dict], tool_name: str) -> Any:
-        """Extrae data de una tool del historial"""
-        for entry in tool_history:
-            if entry.get("tool") == tool_name:
-                result = entry.get("result", {})
-                if result.get("success"):
-                    return result.get("data")
-        return None
+    # ============= UTILITIES =============
     
     def _extract_defect_ids(self, sql_data: List[Dict]) -> List[str]:
-        """Extrae IDs de defectos (copiado de ReportEngine)"""
+        """Extrae IDs de defectos de TODAS las filas"""
         if not sql_data:
             return []
         
         ids = set()
-        for row in sql_data:
-            defect = str(row.get("defectos", ""))
-            match = re.search(r'\b(\d{6,})\b', defect)
+        
+        for i, row in enumerate(sql_data):
+            defect_col = row.get("defectos", "")
+            defect_str = str(defect_col)
+            
+            match = re.search(r'\b(\d{6,})\b', defect_str)
             if match:
                 ids.add(match.group(1))
         
         return list(ids)
     
     def _build_context_query(self, sql_data: List[Dict]) -> str:
-        """Construye query para business rules (copiado de ReportEngine)"""
+        """Construye query para business rules"""
         if not sql_data:
             return ""
         
         terms = set()
-        for row in sql_data[:10]:
+        
+        for row in sql_data:
             if "modulo" in row:
-                terms.add(str(row["modulo"]).lower())
+                modulo = str(row["modulo"]).lower()
+                if modulo and modulo != "nan":
+                    terms.add(modulo)
+            
             if "categoria_de_defecto" in row:
-                terms.add(str(row["categoria_de_defecto"]).lower())
+                categoria = str(row["categoria_de_defecto"]).lower()
+                if categoria and categoria != "nan":
+                    terms.add(categoria)
         
         return " ".join(terms)

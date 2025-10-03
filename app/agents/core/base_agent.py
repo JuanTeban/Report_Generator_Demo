@@ -8,6 +8,8 @@ from app.utils.logger import get_flow_logger
 from app.tools.core import BaseTool, ToolOutput
 from .agent_message import AgentMessage
 
+from app.config.settings_agents import BASE_AGENT_INSTRUCTIONS, RESPONSE_FORMAT_INSTRUCTIONS
+
 class BaseAgent(ABC):
     """
     Agente base con capacidad de razonamiento y uso de tools.
@@ -41,6 +43,8 @@ class BaseAgent(ABC):
         
         # Memoria
         self.memory: List[AgentMessage] = []
+
+        self._current_run_context: Dict[str, Any] = {}
         
         self.logger.log_info(
             f"Agent '{name}' initialized",
@@ -69,12 +73,6 @@ class BaseAgent(ABC):
     async def run(self, task: str, context: Optional[Dict] = None) -> AgentMessage:
         """
         Ejecuta el agente con loop de razonamiento.
-        
-        Flujo:
-        1. THOUGHT: LLM decide qué hacer
-        2. ACTION: Ejecuta tool si es necesario  
-        3. OBSERVATION: Analiza resultado
-        4. Repite hasta resolver o max_iterations
         """
         self.logger.start_flow({
             "agent": self.name,
@@ -84,6 +82,9 @@ class BaseAgent(ABC):
         
         context = context or {}
         iteration = 0
+        
+        # NUEVO: Sincronizar contexto actual
+        self._current_run_context = context
         
         try:
             async with self.logger.step(
@@ -116,6 +117,10 @@ class BaseAgent(ABC):
                             success=True
                         )
                         self.memory.append(result)
+                        
+                        # NUEVO: Limpiar contexto al finalizar
+                        self._current_run_context = {}
+                        
                         self.logger.end_flow(success=True)
                         return result
                     
@@ -139,6 +144,9 @@ class BaseAgent(ABC):
                             "args": tool_args,
                             "result": observation.model_dump()
                         })
+                        
+                        # NUEVO: Mantener sincronizado
+                        self._current_run_context = context
                 
                 # Max iterations
                 self.logger.log_warning(f"Max iterations ({self.max_iterations}) reached")
@@ -152,6 +160,10 @@ class BaseAgent(ABC):
                     },
                     success=False
                 )
+                
+                # NUEVO: Limpiar contexto
+                self._current_run_context = {}
+                
                 self.logger.end_flow(success=False, error="Max iterations")
                 return error_result
                 
@@ -163,12 +175,16 @@ class BaseAgent(ABC):
                 metadata={"error": str(e), "context": context},
                 success=False
             )
+            
+            # NUEVO: Limpiar contexto
+            self._current_run_context = {}
+            
             self.logger.end_flow(success=False, error=str(e))
             return error_result
     
     async def _think(self, task: str, context: Dict) -> Dict[str, Any]:
         """
-        Razonamiento: LLM decide el próximo paso.
+        Razonamiento adaptativo: LLM decide basándose en instrucciones detalladas.
         
         Returns:
             {
@@ -179,50 +195,17 @@ class BaseAgent(ABC):
                 "answer": "..."
             }
         """
-        tools_desc = self._get_tools_description()
-        history = self._format_history(context.get("tool_history", []))
-        last_obs = context.get("last_observation")
-        
-        observation_text = "Sin observaciones previas"
-        if last_obs:
-            if last_obs.success:
-                observation_text = f"Última tool ejecutada exitosamente. Datos: {last_obs.data}"
-            else:
-                observation_text = f"Última tool falló: {last_obs.get('error')}"
-        
-        prompt = f"""Eres un agente asistente experto. Tu tarea es: {task}
-
-Tienes acceso a las siguientes tools:
-{tools_desc}
-
-Historial de acciones ejecutadas:
-{history}
-
-Última observación:
-{observation_text}
-
-Razona paso a paso:
-1. ¿Qué información necesito para completar la tarea?
-2. ¿Ya tengo esa información en las observaciones?
-3. ¿Debo usar alguna tool o puedo dar la respuesta final?
-
-IMPORTANTE: Responde ÚNICAMENTE en formato JSON válido:
-{{
-    "reasoning": "tu razonamiento detallado aquí",
-    "action": "use_tool" o "final_answer",
-    "tool_name": "nombre_exacto_de_la_tool" (solo si action=use_tool),
-    "tool_args": {{"param": "value"}} (solo si action=use_tool),
-    "answer": "tu respuesta final completa" (solo si action=final_answer)
-}}
-"""
+        # Construir prompt completo y detallado
+        full_prompt = self._build_full_prompt(task, context)
         
         self.logger.log_llm_request(
-            prompt,
+            full_prompt,
             type(self.llm).__name__,
-            {"temperature": 0.2, "task": "reasoning"}
+            {"temperature": 0.3, "task": "reasoning"}
         )
         
-        response = await self.llm.generate_async(prompt, temperature=0.2)
+        # LLM decide qué hacer
+        response = await self.llm.generate_async(full_prompt, temperature=0.3)
         
         self.logger.log_llm_response(
             response.content,
@@ -230,18 +213,262 @@ IMPORTANTE: Responde ÚNICAMENTE en formato JSON válido:
             response.usage or {}
         )
         
-        # Parsear JSON
+        # Parsear decisión
         try:
-            decision = json.loads(response.content)
+            decision = self._parse_llm_decision(response.content)
             return decision
-        except json.JSONDecodeError as e:
-            self.logger.log_warning(f"JSON parse failed: {e}, usando fallback")
-            # Fallback: asumir respuesta final
-            return {
-                "reasoning": "Error parseando JSON, asumiendo respuesta",
-                "action": "final_answer",
-                "answer": response.content
-            }
+        except Exception as e:
+            self.logger.log_warning(f"Error parseando decisión LLM: {e}")
+            return self._fallback_decision(response.content, context)
+
+    def _build_full_prompt(self, task: str, context: Dict) -> str:
+        """Construye prompt COMPLETO y DETALLADO para el LLM"""
+        
+        # Instrucciones específicas del agente si las tiene
+        agent_instructions = getattr(self, 'agent_instructions', '')
+        
+        # Catálogo de tools con schemas completos
+        tools_catalog = self._get_tools_catalog()
+        
+        # Historial formateado para el LLM - CRÍTICO: Formateo inteligente
+        tool_history = context.get("tool_history", [])
+        history_text = self._format_history_for_llm(tool_history)
+        
+        # Última observación
+        last_obs = context.get("last_observation")
+        observation_text = self._format_last_observation(last_obs)
+        
+        # Análisis guiado
+        analysis_guide = self._get_analysis_guide(tool_history, task)
+        
+        # Prompt completo
+        return f"""
+                {BASE_AGENT_INSTRUCTIONS}
+
+                {agent_instructions}
+
+                ## TOOLS DISPONIBLES:
+                {tools_catalog}
+
+                ## TU TAREA ACTUAL:
+                {task}
+
+                ## CONTEXTO:
+                - Consultor: {context.get('consultant_name', 'N/A')}
+                - Tipo: {context.get('report_type', 'N/A')}
+
+                ## HISTORIAL DE TOOLS EJECUTADAS:
+                {history_text}
+
+                ## ÚLTIMA OBSERVACIÓN:
+                {observation_text}
+
+                {analysis_guide}
+                   
+                ## FORMATO DE RESPUESTA:  
+                {RESPONSE_FORMAT_INSTRUCTIONS}
+                """
+
+    def _get_tools_catalog(self) -> str:
+        """Genera catálogo detallado de tools para el prompt"""
+        if not self.tools:
+            return "No hay tools disponibles"
+        
+        catalog = []
+        for tool in self.tools.values():
+            schema = tool.to_llm_schema()
+            params = schema['parameters'].get('properties', {})
+            
+            param_desc = []
+            for param_name, param_info in params.items():
+                param_type = param_info.get('type', 'any')
+                param_description = param_info.get('description', 'sin descripción')
+                required = param_name in schema['parameters'].get('required', [])
+                req_marker = " (requerido)" if required else " (opcional)"
+                param_desc.append(f"  - {param_name} ({param_type}){req_marker}: {param_description}")
+            
+            params_text = "\n".join(param_desc) if param_desc else "  - Sin parámetros"
+            
+            catalog.append(
+                f"**{schema['name']}**\n"
+                f"  Descripción: {schema['description']}\n"
+                f"  Parámetros:\n{params_text}"
+            )
+        
+        return "\n\n".join(catalog)
+
+    def _format_history_for_llm(self, tool_history: List[Dict]) -> str:
+        """
+        CRÍTICO: Formatea historial de forma INTELIGENTE para el LLM.
+        No truncar datos importantes como listas de resultados.
+        """
+        if not tool_history:
+            return "Sin historial (es la primera iteración)"
+        
+        formatted = []
+        for i, entry in enumerate(tool_history, 1):
+            tool_name = entry.get("tool")
+            args = entry.get("args", {})
+            result = entry.get("result", {})
+            success = result.get("success")
+            status = "✓ ÉXITO" if success else "✗ FALLÓ"
+            
+            # Mostrar datos de forma inteligente
+            if success:
+                data = result.get("data")
+                metadata = result.get("metadata", {})
+                
+                # ESTRATEGIA INTELIGENTE DE FORMATEO
+                if tool_name == "sql_data_extraction":
+                    # Para SQL, mostrar METADATOS, no datos crudos
+                    row_count = metadata.get("row_count", len(data) if isinstance(data, list) else 0)
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   Args: {args}\n"
+                        f"   RESULTADOS: {row_count} filas extraídas\n"
+                        f"   SQL ejecutado: {metadata.get('sql_executed', 'N/A')[:100]}...\n"
+                        f"   📊 IMPORTANTE: Hay {row_count} defectos en total"
+                    )
+                elif tool_name == "evidence_retrieval":
+                    total_chunks = metadata.get("total_chunks", 0)
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   Args: {args}\n"
+                        f"   RESULTADOS: {total_chunks} chunks de evidencia\n"
+                        f"   Stats: {metadata.get('stats_by_defect', {})}"
+                    )
+                elif tool_name == "business_rules":
+                    count = metadata.get("count", len(data) if isinstance(data, list) else 0)
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   Args: {args}\n"
+                        f"   RESULTADOS: {count} reglas recuperadas"
+                    )
+                elif tool_name in ["summary_generation", "recommendations_generation"]:
+                    text_len = len(data) if isinstance(data, str) else 0
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   Args: consultor={args.get('consultant_name', 'N/A')}\n"
+                        f"   RESULTADOS: Texto generado ({text_len} caracteres)\n"
+                        f"   Preview: {data[:150] if isinstance(data, str) else 'N/A'}..."
+                    )
+                elif tool_name == "chart_generation":
+                    chart_count = metadata.get("total_charts", 0)
+                    chart_names = metadata.get("chart_names", [])
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   RESULTADOS: {chart_count} gráficos generados\n"
+                        f"   Nombres: {chart_names}"
+                    )
+                else:
+                    # Para otros tools, mostrar preview corto
+                    data_str = str(data)[:200] if data else "Sin datos"
+                    formatted.append(
+                        f"{i}. {status} - Tool: {tool_name}\n"
+                        f"   Args: {args}\n"
+                        f"   Data: {data_str}...\n"
+                        f"   Metadata: {metadata}"
+                    )
+            else:
+                error = result.get("error", "Error desconocido")
+                formatted.append(
+                    f"{i}. {status} - Tool: {tool_name}\n"
+                    f"   Args: {args}\n"
+                    f"   Error: {error}"
+                )
+        
+        return "\n\n".join(formatted)
+
+    def _format_last_observation(self, last_obs: Any) -> str:
+        """Formatea última observación para el LLM"""
+        if not last_obs:
+            return "Sin observaciones previas (primera iteración)"
+        
+        if isinstance(last_obs, dict):
+            success = last_obs.get("success")
+            if success:
+                metadata = last_obs.get("metadata", {})
+                return f"✓ Última tool exitosa\nMetadata: {metadata}"
+            else:
+                error = last_obs.get("error", "Error desconocido")
+                return f"✗ Última tool falló\nError: {error}"
+        
+        return "Observación disponible pero formato no reconocido"
+
+    def _get_analysis_guide(self, tool_history: List[Dict], task: str) -> str:
+        """Genera guía de análisis para ayudar al LLM"""
+        completed_tools = {entry["tool"] for entry in tool_history}
+        
+        return f"""
+                ## ANÁLISIS PASO A PASO:
+
+                1. **REVISAR HISTORIAL:**
+                - Tools ejecutadas: {', '.join(completed_tools) if completed_tools else 'ninguna'}
+                - Total de acciones: {len(tool_history)}
+
+                2. **EVALUAR PROGRESO:**
+                - ¿He cumplido el objetivo de la tarea?
+                - ¿Qué información tengo disponible?
+                - ¿Qué me falta para completar?
+
+                3. **DECIDIR SIGUIENTE ACCIÓN:**
+                - Si tengo todo lo necesario → final_answer
+                - Si falta información → use_tool (decidir cuál)
+                - Si algo falló → evaluar si puedo continuar o debo abortar
+                """
+
+    def _parse_llm_decision(self, llm_response: str) -> Dict[str, Any]:
+        """Parsea respuesta JSON del LLM"""
+        import json
+        import re
+        
+        # Limpiar markdown si existe
+        cleaned = re.sub(r'```json\s*', '', llm_response)
+        cleaned = re.sub(r'```\s*$', '', cleaned)
+        cleaned = cleaned.strip()
+        
+        # Parsear JSON
+        decision = json.loads(cleaned)
+        
+        # Validar estructura mínima
+        if "action" not in decision:
+            raise ValueError("Falta campo 'action' en decisión")
+        
+        if decision["action"] == "use_tool":
+            if "tool_name" not in decision:
+                raise ValueError("action=use_tool pero falta 'tool_name'")
+            if decision["tool_name"] not in self.tools:
+                available = ', '.join(self.tools.keys())
+                raise ValueError(f"Tool '{decision['tool_name']}' no existe. Disponibles: {available}")
+            if "tool_args" not in decision:
+                decision["tool_args"] = {}
+        
+        elif decision["action"] == "final_answer":
+            if "answer" not in decision:
+                raise ValueError("action=final_answer pero falta 'answer'")
+        
+        return decision
+
+    def _fallback_decision(self, llm_response: str, context: Dict) -> Dict[str, Any]:
+        """Decisión de emergencia si falla el parsing"""
+        self.logger.log_warning("Usando fallback decision por error de parsing")
+        
+        # Si menciona una tool específica, intentar usarla
+        for tool_name in self.tools.keys():
+            if tool_name in llm_response.lower():
+                return {
+                    "reasoning": "Fallback: detecté mención de tool",
+                    "action": "use_tool",
+                    "tool_name": tool_name,
+                    "tool_args": {}
+                }
+        
+        # Si no, dar respuesta final con lo que dijo el LLM
+        return {
+            "reasoning": "Fallback: no pude parsear decisión JSON",
+            "action": "final_answer",
+            "answer": llm_response[:500]
+        }
     
     async def _execute_tool(self, tool_name: str, tool_args: Dict) -> ToolOutput:
         """Ejecuta tool con manejo de errores"""
@@ -272,39 +499,3 @@ IMPORTANTE: Responde ÚNICAMENTE en formato JSON válido:
                 data=None,
                 error=f"Error ejecutando tool: {str(e)}"
             )
-    
-    def _get_tools_description(self) -> str:
-        """Genera descripción de tools para el prompt"""
-        if not self.tools:
-            return "No hay tools disponibles"
-        
-        descriptions = []
-        for tool in self.tools.values():
-            schema = tool.to_llm_schema()
-            params_desc = schema['parameters'].get('properties', {})
-            params_list = ', '.join(f"{k}: {v.get('description', 'sin descripción')}" 
-                                   for k, v in params_desc.items())
-            
-            descriptions.append(
-                f"• {schema['name']}: {schema['description']}\n"
-                f"  Parámetros: {params_list if params_list else 'ninguno'}"
-            )
-        return "\n".join(descriptions)
-    
-    def _format_history(self, history: List[Dict]) -> str:
-        """Formatea historial para el prompt"""
-        if not history:
-            return "Sin historial de acciones"
-        
-        formatted = []
-        for i, entry in enumerate(history[-5:], 1):  # Solo últimas 5
-            result = entry.get('result', {})
-            status = "✓" if result.get('success') else "✗"
-            data_preview = str(result.get('data', ''))[:100]
-            
-            formatted.append(
-                f"{i}. {status} Tool: {entry['tool']}\n"
-                f"   Argumentos: {entry['args']}\n"
-                f"   Resultado: {data_preview}..."
-            )
-        return "\n".join(formatted)
