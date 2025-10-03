@@ -39,20 +39,13 @@ Thumbs.db
 
 # Selenium / perfiles locales
 chrome_profile/
-app/core/external/bot_selenium_files_solman/
+app/core/external/bot_selenium_files_solman/chrome_profile/
+app/core/external/bot_selenium_files_solman/__pycache__/
+app/core/external/bot_selenium_files_solman/*.log
 
 # Datos generados y grandes
 data_store/
-# Si prefieres granular, usa estas en lugar de la línea anterior:
-# data_store/etl_store/uploads_excel/
-# data_store/etl_store/uploads_business/
-# data_store/etl_store/uploads_multimodal/
-# data_store/etl_store/vector_store/
-# data_store/etl_store/duckdb_data/
-# data_store/logs/
-# data_store/logs_vectorization/
-# data_store/logs_vectorization/tmp_images/
-# data_store/etl_store/knowledge_base/
+
 
 # Chroma / embeddings
 **/chroma.sqlite3

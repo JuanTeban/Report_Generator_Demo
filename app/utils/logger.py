@@ -1,4 +1,3 @@
-# app/utils/logger.py
 """
 Sistema de logging modular y profesional para el proyecto.
 Permite logging detallado de diferentes flujos con estructura organizada.
@@ -32,13 +31,10 @@ class FlowLogger:
         self.log_level = log_level
         self.enable_console = enable_console
         
-        # Crear directorio de logs
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Configurar logger
         self.logger = self._setup_logger()
         
-        # Metadata del flujo
         self.flow_metadata = {
             "flow_name": flow_name,
             "start_time": datetime.now().isoformat(),
@@ -58,24 +54,19 @@ class FlowLogger:
         logger = logging.getLogger(f"flow_{self.flow_name}")
         logger.setLevel(self.log_level)
         
-        # Evitar duplicar handlers
         if logger.handlers:
             return logger
-        
-        # Formato para logs
         formatter = logging.Formatter(
             '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Handler para archivo principal
         log_file = self.log_dir / f"{self.flow_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(self.log_level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         
-        # Handler para consola (opcional)
         if self.enable_console:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.INFO)
@@ -109,7 +100,6 @@ class FlowLogger:
         if error:
             self.flow_metadata["error"] = error
         
-        # Calcular duración
         start = datetime.fromisoformat(self.flow_metadata["start_time"])
         end = datetime.fromisoformat(self.flow_metadata["end_time"])
         duration = (end - start).total_seconds()
@@ -124,7 +114,6 @@ class FlowLogger:
             self.logger.error(f"Error: {error}")
         self.logger.info("=" * 80)
         
-        # Guardar metadata del flujo
         metadata_file = self.log_dir / f"{self.flow_metadata['session_id']}_metadata.json"
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(self.flow_metadata, f, indent=2, ensure_ascii=False)
@@ -162,7 +151,6 @@ class FlowLogger:
         finally:
             step_metadata["end_time"] = datetime.now().isoformat()
             
-            # Calcular duración del paso
             start = datetime.fromisoformat(step_metadata["start_time"])
             end = datetime.fromisoformat(step_metadata["end_time"])
             step_metadata["duration_seconds"] = (end - start).total_seconds()
@@ -379,7 +367,6 @@ class LoggerManager:
                     print(f"Error eliminando {log_file}: {e}")
 
 
-# Instancia global del manager
 _logger_manager = None
 
 def get_logger_manager(base_log_dir: Path = None) -> LoggerManager:
@@ -388,7 +375,6 @@ def get_logger_manager(base_log_dir: Path = None) -> LoggerManager:
     
     if _logger_manager is None:
         if base_log_dir is None:
-            # Directorio por defecto
             base_log_dir = Path("data_store/logs")
         _logger_manager = LoggerManager(base_log_dir)
     

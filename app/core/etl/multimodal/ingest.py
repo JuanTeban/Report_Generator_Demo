@@ -26,14 +26,12 @@ MULTIMODAL_LOG_FILE = DATA_LOG_PATH / "multimodal_ingestion_log.json"
 TMP_DIR = (DATA_LOG_PATH / "tmp_images")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------- Normalización / utilidades ----------
 HEADING_RE = re.compile(
     r"^\s*(\d+(?:\.\d+)*)[.)\s]+(.+?)(?:\s+\d+)?\s*$",
     re.IGNORECASE
 )
 SKIP_TOKENS = {"confidencial", "cb consultores chile.", "grupo epm", "grupo saesa"}
 
-# Palabras clave para identificar secciones por contenido
 SECTION_KEYWORDS = {
     "1": ["control de la plantilla", "control de versiones", "historial de cambios"],
     "2": ["descripción y evidencia", "evidencia hallazgo", "descripción hallazgo"],
@@ -104,7 +102,6 @@ def _get_section_parent(path: str) -> str:
     parts = path.split(".")
     return parts[0] if parts else path
 
-# ---------- NUEVA FUNCIÓN: Extracción mejorada desde path ----------
 def _extract_metadata_from_path(file_path: Path) -> Dict[str, str]:
     """
     Extrae metadata desde la estructura del path:
@@ -127,10 +124,8 @@ def _extract_metadata_from_path(file_path: Path) -> Dict[str, str]:
     }
     
     try:
-        # Obtener partes del path
         parts = file_path.parts
         
-        # Identificar tipo de organización
         if "by_responsable" in parts:
             result["tipo_organizacion"] = "by_responsable"
             idx = parts.index("by_responsable")
@@ -140,22 +135,18 @@ def _extract_metadata_from_path(file_path: Path) -> Dict[str, str]:
         else:
             return result
         
-        # Extraer responsable (carpeta después de by_responsable/by_ticket)
         if idx + 1 < len(parts):
             responsable_raw = parts[idx + 1]
             result["responsable_original"] = responsable_raw
             
-            # Limpiar responsable: quitar números entre paréntesis y guiones bajos
-            responsable_clean = re.sub(r'_?\(\d+\)$', '', responsable_raw)  # Quitar (92)
-            responsable_clean = responsable_clean.replace('_', ' ')  # Reemplazar _ por espacio
+            responsable_clean = re.sub(r'_?\(\d+\)$', '', responsable_raw)
+            responsable_clean = responsable_clean.replace('_', ' ') 
             result["responsable_clean"] = responsable_clean.strip()
         
-        # Extraer ID de caso/defecto (carpeta del caso)
         if idx + 2 < len(parts):
             caso_dir = parts[idx + 2]
             result["defecto_original"] = caso_dir
             
-            # Extraer solo los dígitos iniciales (ej: "8000001239" de "8000001239-H1_TX_1272...")
             match = re.match(r'^(\d+)', caso_dir)
             if match:
                 result["defecto_id_digits"] = match.group(1)
@@ -165,7 +156,6 @@ def _extract_metadata_from_path(file_path: Path) -> Dict[str, str]:
     
     return result
 
-# ---------- NUEVA FUNCIÓN: Extracción de módulo y proyecto desde elementos ----------
 def _extract_business_metadata(elements: List[Any]) -> Dict[str, str]:
     """
     Extrae módulo y proyecto desde las tablas de metadata del documento.
@@ -179,18 +169,14 @@ def _extract_business_metadata(elements: List[Any]) -> Dict[str, str]:
     }
     
     try:
-        # Revisar solo los primeros 20 elementos (sección de metadata)
         for el in elements[:20]:
             et = type(el).__name__
             if "Table" not in et:
-                continue
-            
-            # Convertir tabla a texto
+                continue 
             text = str(el).lower()
             
-            # Buscar proyecto
+
             if not result["proyecto"]:
-                # Patrones comunes
                 patterns_proyecto = [
                     r'nombre\s+de\s+proyecto[:\s]+([^\n|]+)',
                     r'proyecto[:\s]+([^\n|]+)',
@@ -199,14 +185,12 @@ def _extract_business_metadata(elements: List[Any]) -> Dict[str, str]:
                     match = re.search(pattern, text, re.IGNORECASE)
                     if match:
                         proyecto = match.group(1).strip()
-                        # Limpiar caracteres extraños y pipes
                         proyecto = re.sub(r'\s*\|\s*', '', proyecto)
                         proyecto = proyecto.strip()
                         if proyecto and len(proyecto) > 2:
                             result["proyecto"] = proyecto
                             break
             
-            # Buscar módulo
             if not result["modulo"]:
                 patterns_modulo = [
                     r'sistema\s+y/o\s+m[óo]dulo[:\s]+([^\n|]+)',
@@ -217,14 +201,12 @@ def _extract_business_metadata(elements: List[Any]) -> Dict[str, str]:
                     match = re.search(pattern, text, re.IGNORECASE)
                     if match:
                         modulo = match.group(1).strip()
-                        # Limpiar
                         modulo = re.sub(r'\s*\|\s*', '', modulo)
                         modulo = modulo.strip()
                         if modulo and len(modulo) > 2:
                             result["modulo"] = modulo
                             break
             
-            # Si ya encontramos ambos, terminar
             if result["proyecto"] and result["modulo"]:
                 break
     
@@ -233,7 +215,6 @@ def _extract_business_metadata(elements: List[Any]) -> Dict[str, str]:
     
     return result
 
-# ---------- Extracción de id_reporte (MANTENER para compatibilidad) ----------
 def _extract_id_reporte_from_path(file_path: Path) -> Optional[str]:
     """Mantener para compatibilidad, pero _extract_metadata_from_path es más completo"""
     try:
@@ -250,7 +231,6 @@ def _extract_id_reporte_from_path(file_path: Path) -> Optional[str]:
             return m2.group(1)
     return None
 
-# ---------- Imagen / unstructured ----------
 def _extract_image_bytes(el) -> bytes | None:
     data = getattr(getattr(el, "metadata", None), "image", None) or getattr(el, "image", None)
     if isinstance(data, (bytes, bytearray)):
@@ -356,7 +336,6 @@ async def _describe_images_async(images: List[Any]) -> List[str]:
             out.append("[IMAGEN] Error de procesamiento")
     return out
 
-# ---------- Chunking mejorado con análisis de contenido ----------
 async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[str], List[Dict]]:
     """
     Nueva estrategia:
@@ -365,7 +344,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
     3. Las tablas con títulos de sección marcan los límites
     """
     
-    # Paso 1: Mapeo de títulos de sección desde TOC
     section_titles = {}
     toc_elements = []
     
@@ -440,7 +418,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
         else:
             print(f"  Elemento #{idx} ({et}): IGNORADO (sin sección activa)")
     
-    # Debug: mostrar conteos
     print("\n" + "="*80)
     print("RESUMEN DE SECCIONES")
     print("="*80)
@@ -450,7 +427,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
     chunks: List[str] = []
     metas: List[Dict] = []
     
-    # Paso 3: Procesar cada sección
     print("\n" + "="*80)
     print("FASE 3: GENERACIÓN DE CHUNKS")
     print("="*80)
@@ -487,7 +463,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
                 "content_sha": _content_sha(content),
             }
         
-        # -------- SECCIÓN 1: TODO EN UN CHUNK --------
         if path == "1":
             print("  -> Regla SECCIÓN 1 (todo junto)")
             text_parts: List[str] = []
@@ -524,7 +499,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
                 print(f"  -> Chunk creado: {len(final)} chars")
             continue
         
-        # -------- SECCIÓN 2: PASOS --------
         if path == "2":
             print("  -> Regla SECCIÓN 2 (pasos)")
             step_buffer = {"text": [], "tables": [], "images": []}
@@ -579,7 +553,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
             await flush_step()
             continue
         
-        # -------- OTRAS SECCIONES --------
         print("  -> Regla ESTÁNDAR")
         text_buf: List[str] = []
         table_buf: List[str] = []
@@ -620,7 +593,6 @@ async def process_document_by_section_async(elements: List[Any]) -> Tuple[List[s
     
     return chunks, metas
 
-# ---------- Resto sin cambios ----------
 def _save_log(data: Dict):
     MULTIMODAL_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(MULTIMODAL_LOG_FILE, "w", encoding="utf-8") as f:
@@ -660,52 +632,41 @@ async def _process_dir(root: Path, responsable: Optional[str], defecto: Optional
                 for f in files:
                     processed_files += 1
                     try:
-                        # --- EXTRACCIÓN DE METADATA DEL PATH ---
                         path_meta = _extract_metadata_from_path(f)
                         
-                        # Procesar elementos
                         elements = partition_file(f)
                         
-                        # --- EXTRACCIÓN DE METADATA DEL DOCUMENTO ---
                         business_meta = _extract_business_metadata(elements)
                         
-                        # Generar chunks
                         grouped_chunks, partial_metas = await process_document_by_section_async(elements)
                         if not grouped_chunks:
                             continue
 
-                        # ID de reporte (mantener compatibilidad)
                         id_reporte = path_meta.get("defecto_id_digits") or _extract_id_reporte_from_path(f) or ""
                         responsable_norm = _norm(path_meta.get("responsable_clean") or r)
                         document_id = f"{responsable_norm}::{id_reporte or 'na'}::{Path(f).stem}"
 
-                        # --- ENRIQUECER METADATOS ---
                         final_metas = []
                         for i, meta in enumerate(partial_metas):
                             raw = {
-                                # Campos básicos
                                 "element_type": meta.get("chunk_type", ""),
                                 "responsable": path_meta.get("responsable_clean") or r,
                                 "responsable_norm": responsable_norm,
                                 "responsable_original": path_meta.get("responsable_original", ""),
                                 
-                                # Defecto/Caso
                                 "defecto": defecto or path_meta.get("defecto_original", ""),
                                 "defecto_original": path_meta.get("defecto_original", ""),
                                 "defect_id_digits": id_reporte,
                                 
-                                # Metadata de negocio
                                 "modulo": business_meta.get("modulo", ""),
                                 "proyecto": business_meta.get("proyecto", ""),
                                 
-                                # Archivo y documento
                                 "source_file": f.name,
                                 "chunk_index": i,
                                 "id_reporte": id_reporte,
                                 "document_id": document_id,
                                 "tipo_organizacion": path_meta.get("tipo_organizacion", ""),
                                 
-                                # Metadata del chunk (pasados desde process_document_by_section_async)
                                 **{k: v for k, v in meta.items() if k not in {"element_type"}},
                             }
                             final_metas.append(meta_preparer(raw))
