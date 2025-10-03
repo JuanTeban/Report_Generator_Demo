@@ -34,3 +34,9 @@ polars[excel]
 # --- Configuration & Utilities ---
 pydantic
 python-dotenv
+
+httpx
+selenium
+requests
+PyMuPDF
+
